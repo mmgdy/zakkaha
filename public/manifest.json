@@ -1,0 +1,21 @@
+{
+  "name": "زكّاها — Zakkaha",
+  "short_name": "زكّاها",
+  "description": "القرآن الكريم · الأذكار · ختمة القرآن · المرشد الروحاني",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#060e09",
+  "theme_color": "#060e09",
+  "orientation": "portrait-primary",
+  "lang": "ar",
+  "categories": ["lifestyle", "education", "utilities"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    { "name": "القرآن الكريم", "short_name": "قرآن", "url": "/?tab=quran", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "الأذكار",       "short_name": "أذكار", "url": "/?tab=adhkar", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

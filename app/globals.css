@@ -1,0 +1,86 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;width:100%}
+body{background:#060e09;color:#f0e8d8;font-family:Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased}
+input,textarea,button{font-family:inherit}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1a2e1f;border-radius:2px}
+
+.zk-shell{background:#060e09;min-height:100vh;width:100%;display:flex;flex-direction:column;font-family:Georgia,serif}
+.zk-content{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:72px}
+.zk-bottom-nav{position:fixed;bottom:0;left:0;right:0;height:70px;background:rgba(6,14,9,.97);backdrop-filter:blur(20px);border-top:1px solid #1a2e1f;display:flex;align-items:center;justify-content:space-around;z-index:100}
+.zk-sidebar{display:none}
+.zk-page{width:100%;max-width:860px;margin:0 auto;padding:0 16px 28px}
+
+@media(min-width:640px){
+  .zk-page{padding:0 28px 32px}
+  .g2{grid-template-columns:1fr 1fr!important}
+  .g3{grid-template-columns:1fr 1fr 1fr!important}
+  .g4{grid-template-columns:repeat(4,1fr)!important}
+}
+
+@media(min-width:1024px){
+  .zk-shell{flex-direction:row;height:100vh;overflow:hidden}
+  .zk-bottom-nav{display:none}
+  .zk-sidebar{display:flex;flex-direction:column;width:250px;min-width:250px;height:100vh;background:#07120a;border-right:1px solid #1a2e1f;position:sticky;top:0;flex-shrink:0;overflow-y:auto;z-index:50}
+  .zk-content{flex:1;height:100vh;overflow-y:auto;padding-bottom:0}
+  .zk-page{max-width:900px;padding:0 40px 40px}
+  .zk-mob-only{display:none!important}
+  .zk-mentor-h{height:100vh!important}
+  .zk-banner{padding-top:36px!important}
+  .g3{grid-template-columns:1fr 1fr 1fr!important}
+  .g4{grid-template-columns:repeat(4,1fr)!important}
+}
+
+@media(min-width:1440px){
+  .zk-sidebar{width:270px;min-width:270px}
+  .zk-page{max-width:1060px;padding:0 52px 48px}
+  .g4{grid-template-columns:repeat(4,1fr)!important}
+}
+
+@media(min-width:1920px){
+  body{font-size:18px}
+  .zk-sidebar{width:310px;min-width:310px}
+  .zk-page{max-width:1400px;padding:0 64px 60px}
+  .zk-bottom-nav{display:none}
+  .zk-mob-only{display:none!important}
+}
+
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-20px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes checkpop{0%{transform:scale(.8)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+
+.zu{animation:fadeUp .38s ease forwards}
+.scrl::-webkit-scrollbar{width:3px}
+.scrl::-webkit-scrollbar-thumb{background:#1a2e1f;border-radius:2px}
+
+/* ── QURAN READER ── */
+.quran-text {
+  font-family: 'Amiri', 'Scheherazade New', Georgia, serif;
+  font-size: 22px;
+  line-height: 2.2;
+  direction: rtl;
+  text-align: right;
+  color: #f0e8d8;
+}
+
+/* Audio range input */
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #1a2e1f;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #d4a843;
+  border-radius: 50%;
+  cursor: pointer;
+}
