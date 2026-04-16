@@ -556,10 +556,12 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const [textErr,    setTextErr]     = useState(false)
   const [search,     setSearch]      = useState('')
   const [lastRead,   setLastRead]    = useState(() => S.get('zk:lastread') || null)
+  const [audioPos,   setAudioPos]    = useState(() => S.get('zk:audiopos') || null)
   const [showKhatmaPrompt, setShowKhatmaPrompt] = useState(false)
 
   // ── Audio ─────────────────────────────────────────────────────────────────
-  const audioRef    = useRef(null)
+  const audioRef      = useRef(null)
+  const seekOnLoadRef = useRef(null)  // seconds to seek once audio canplay fires
   const [playing,   setPlaying]      = useState(false)
   const [buffering, setBuffering]    = useState(false)
   const [audioErr,  setAudioErr]     = useState(false)
@@ -596,11 +598,32 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
     const handlers = {
       timeupdate:     () => setProgress(a.currentTime),
       durationchange: () => setDuration(a.duration || 0),
-      ended:          () => { setPlaying(false); setProgress(0) },
+      ended:          () => {
+        setPlaying(false); setProgress(0)
+        // Surah finished — clear saved position
+        S.set('zk:audiopos', null)
+        setAudioPos(null)
+      },
       playing:        () => { setPlaying(true);  setBuffering(false) },
-      pause:          () => setPlaying(false),
+      pause:          () => {
+        setPlaying(false)
+        // Save exact position so user can resume next session
+        if (surah && a.currentTime > 3) {
+          const pos = { n: surah.n, time: a.currentTime }
+          S.set('zk:audiopos', pos)
+          setAudioPos(pos)
+        }
+      },
       waiting:        () => setBuffering(true),
-      canplay:        () => setBuffering(false),
+      canplay:        () => {
+        setBuffering(false)
+        // Restore saved position if one was queued for this surah
+        if (seekOnLoadRef.current != null) {
+          a.currentTime = seekOnLoadRef.current
+          setProgress(seekOnLoadRef.current)
+          seekOnLoadRef.current = null
+        }
+      },
       error:          () => {
         // Try backup URL on first error
         if (surah && !a.dataset.triedBackup) {
@@ -630,6 +653,13 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
     if (a) { a.pause(); a.src = '' }
     setPlaying(false); setBuffering(false); setAudioErr(false)
     setProgress(0); setDuration(0)
+    // Queue a seek if there's a saved audio position for this surah
+    const savedPos = S.get('zk:audiopos')
+    if (savedPos && savedPos.n === s.n && savedPos.time > 3) {
+      seekOnLoadRef.current = savedPos.time
+    } else {
+      seekOnLoadRef.current = null
+    }
     setSurah(s); setView('reader')
     setLastRead({ n: s.n, ar: s.ar, en: s.en })
   }
@@ -754,6 +784,9 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
                 🎙️ Sheikh Yasser Al-Dosari
                 {buffering && !audioErr && <span style={{ color: '#d4a843', marginLeft: 8 }}>● buffering...</span>}
                 {audioErr && <span style={{ color: '#e07050', marginLeft: 8 }}>⚠ {rtl ? 'الصوت غير متاح' : 'audio unavailable'}</span>}
+                {!buffering && !audioErr && audioPos && audioPos.n === surah.n && progress > 3 && (
+                  <span style={{ color: '#2d9b6f', marginLeft: 8 }}>⏱ {rtl ? 'استؤنف' : 'resumed'}</span>
+                )}
               </div>
 
               {/* Progress bar — clickable */}
@@ -930,6 +963,27 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
         {rtl ? '١١٤ سورة' : '114 Surahs'}
       </h2>
 
+      {/* ── Resume Audio Banner ── shows when there's a paused position saved */}
+      {audioPos && audioPos.time > 3 && (() => {
+        const rs = SURAHS.find(s => s.n === audioPos.n)
+        return rs ? (
+          <button onClick={() => openSurah(rs)}
+            style={{ width: '100%', background: 'rgba(45,155,111,.08)', border: '1px solid rgba(45,155,111,.28)', borderRadius: 11, padding: '12px 16px', cursor: 'pointer', textAlign: 'left', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, transition: 'all .2s' }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#2d9b6f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, color: '#fff', flexShrink: 0 }}>▶</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: '#2d9b6f', fontSize: 9, letterSpacing: 2, fontFamily: 'system-ui', marginBottom: 3 }}>
+                {rtl ? '⏱ استأنف من حيث توقفت' : '⏱ RESUME WHERE YOU LEFT OFF'}
+              </div>
+              <div style={{ color: '#f0e8d8', fontSize: 15 }}>{rs.ar}</div>
+              <div style={{ color: '#7a9082', fontSize: 11, fontFamily: 'system-ui' }}>
+                {rs.en} · {rtl ? `من الدقيقة ${fmtTime(audioPos.time)}` : `from ${fmtTime(audioPos.time)}`}
+              </div>
+            </div>
+            <div style={{ color: '#2d9b6f', fontSize: 22, flexShrink: 0 }}>›</div>
+          </button>
+        ) : null
+      })()}
+
       {/* Top cards — last read + khatma */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }} className="g2">
         {/* Last Read */}
@@ -939,6 +993,12 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
             <div style={{ color: '#d4a843', fontSize: 9, letterSpacing: 2, fontFamily: 'system-ui', marginBottom: 5 }}>{rtl ? '📖 آخر قراءة' : '📖 LAST READ'}</div>
             <div style={{ color: '#f0e8d8', fontSize: 15 }}>{lastRead.ar}</div>
             <div style={{ color: '#7a9082', fontSize: 11, fontFamily: 'system-ui' }}>{lastRead.en}</div>
+            {audioPos && audioPos.n === lastRead.n && audioPos.time > 3 && (
+              <div style={{ color: '#2d9b6f', fontSize: 10, fontFamily: 'system-ui', marginTop: 5, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>⏱</span>
+                <span>{rtl ? `يستأنف عند ${fmtTime(audioPos.time)}` : `Resumes at ${fmtTime(audioPos.time)}`}</span>
+              </div>
+            )}
           </button>
         ) : (
           <div style={{ background: 'rgba(212,168,67,.04)', border: '1px solid #1a2e1f', borderRadius: 10, padding: 14, textAlign: rtl ? 'right' : 'left' }}>
@@ -1012,6 +1072,11 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ color: done ? 'rgba(240,232,216,.6)' : '#f0e8d8', fontSize: 15 }}>{s.ar}</span>
                   {isLastRead && <span style={{ background: 'rgba(212,168,67,.15)', color: '#d4a843', fontSize: 9, borderRadius: 4, padding: '2px 6px', fontFamily: 'system-ui', letterSpacing: 1, flexShrink: 0 }}>LAST READ</span>}
+                  {audioPos && audioPos.n === s.n && audioPos.time > 3 && (
+                    <span style={{ background: 'rgba(45,155,111,.14)', color: '#2d9b6f', fontSize: 9, borderRadius: 4, padding: '2px 6px', fontFamily: 'system-ui', flexShrink: 0 }}>
+                      ⏱ {fmtTime(audioPos.time)}
+                    </span>
+                  )}
                   {done && !isLastRead && <span style={{ color: '#2d9b6f', fontSize: 12 }}>✓</span>}
                 </div>
                 <div style={{ color: '#7a9082', fontSize: 11, fontFamily: 'system-ui', marginTop: 2 }}>
