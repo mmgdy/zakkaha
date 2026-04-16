@@ -204,6 +204,33 @@ async function scheduleAllNotifications(lang, user) {
     if (dhMsg) PWA.scheduleNotif('dhulhijjah', 2000, ar ? '🕋 أيام ذي الحجة' : '🕋 Blessed Dhul Hijjah', dhMsg, 'dhulhijjah', '/?tab=adhkar')
   }
 
+  // ── SALAWAT EVERY 15 MINUTES (next 8 hours) ──────────────────────────────
+  // Rotating phrases so each notification feels fresh
+  const salawatPhrases = [
+    'اللهم صلِّ على محمد وعلى آل محمد 🌿',
+    'صلوا على النبي ﷺ — صلاة تُنير قلبك 💚',
+    'اللهم صلِّ وسلِّم وبارك على نبينا محمد ✨',
+    'من صلّى عليّ صلاةً صلى الله عليه بها عشراً 🤍',
+    'صلى الله على محمد — ردّدها الآن 🌙',
+    'اللهم صلِّ على محمد وأنعم علينا بحبّه 💫',
+    'دقيقة من وقتك لتصلي على خير الخلق ﷺ 🌿',
+    'الصلاة على النبي نور في الدنيا وشفاعة في الآخرة 🕌',
+  ]
+  const interval15 = 15 * 60 * 1000 // 15 minutes in ms
+  const hoursAhead  = 8               // schedule for next 8 hours
+  const totalSlots  = (hoursAhead * 60) / 15  // 32 notifications
+  for (let i = 1; i <= totalSlots; i++) {
+    const phrase = salawatPhrases[(i - 1) % salawatPhrases.length]
+    PWA.scheduleNotif(
+      `salawat-${i}`,
+      i * interval15,
+      ar ? '💚 الصلاة على النبي ﷺ' : '💚 Salawat upon the Prophet ﷺ',
+      phrase,
+      'salawat',
+      '/?tab=adhkar'
+    )
+  }
+
   S.set('zk:notif-scheduled', new Date().toDateString())
 }
 
@@ -1323,6 +1350,50 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
   const fa=FOCUS_AREAS.find(f=>f.id===user.focusArea)||FOCUS_AREAS[0]
   const lv=getLevelInfo(user.xp)
 
+  // ── Voice input (STT) ────────────────────────────────────────────────────
+  const [listening,  setListening]  = useState(false)
+  const [ttsOn,      setTtsOn]      = useState(true)   // auto-read AI replies
+  const recognizerRef = useRef(null)
+
+  function startListening() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SR) { showNotif(rtl ? '⚠ المتصفح لا يدعم التعرف على الصوت' : '⚠ Browser does not support voice input'); return }
+    const rec = new SR()
+    rec.lang = rtl ? 'ar-EG' : 'en-US'
+    rec.continuous = false
+    rec.interimResults = false
+    rec.onstart  = () => setListening(true)
+    rec.onend    = () => setListening(false)
+    rec.onerror  = () => setListening(false)
+    rec.onresult = e => {
+      const transcript = e.results[0][0].transcript
+      setInput(p => (p + ' ' + transcript).trim())
+    }
+    recognizerRef.current = rec
+    rec.start()
+  }
+
+  function stopListening() {
+    recognizerRef.current?.stop()
+    setListening(false)
+  }
+
+  function speak(text) {
+    if (!ttsOn || !window.speechSynthesis) return
+    window.speechSynthesis.cancel()
+    const utt = new SpeechSynthesisUtterance(text)
+    utt.lang  = rtl ? 'ar-SA' : 'en-US'
+    utt.rate  = 0.92
+    utt.pitch = 1.0
+    // prefer an Arabic voice if available
+    if (rtl) {
+      const voices = window.speechSynthesis.getVoices()
+      const arVoice = voices.find(v => v.lang.startsWith('ar'))
+      if (arVoice) utt.voice = arVoice
+    }
+    window.speechSynthesis.speak(utt)
+  }
+
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:'smooth'}) },[msgs])
 
   async function send() {
@@ -1343,6 +1414,7 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
       setMsgs(p=>[...p,{role:'assistant',content:reply}])
       setMentorCount(p=>p+1)
       setUser(p=>({...p,xp:p.xp+10}))
+      speak(reply)
     } catch(e) {
       setMsgs(p=>[...p,{role:'assistant',content:`⚠️ ${e.message||'Network error'}`}])
     }
@@ -1400,11 +1472,26 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
       </div>
 
       <div style={{flexShrink:0,background:'#0c1a0f',borderTop:'1px solid #1a2e1f',padding:'10px 12px',display:'flex',gap:9,alignItems:'flex-end'}}>
+        {/* TTS toggle */}
+        <button onClick={()=>{ setTtsOn(p=>!p); if(window.speechSynthesis) window.speechSynthesis.cancel() }}
+          title={rtl?'تشغيل/إيقاف الصوت':'Toggle voice output'}
+          style={{width:38,height:38,borderRadius:'50%',border:`1px solid ${ttsOn?'rgba(45,155,111,.4)':'#1a2e1f'}`,background:ttsOn?'rgba(45,155,111,.12)':'transparent',color:ttsOn?'#2d9b6f':'#3a5045',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15,transition:'all .2s'}}>
+          {ttsOn ? '🔊' : '🔇'}
+        </button>
+
         <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder={t(lang,'m_ph')} rows={1}
           style={{flex:1,background:'rgba(255,255,255,.05)',border:'1px solid #1a2e1f',color:'#f0e8d8',padding:'12px 14px',borderRadius:22,fontSize:14,fontFamily:'system-ui',resize:'none',outline:'none',minHeight:44,maxHeight:110,lineHeight:1.5,direction:rtl?'rtl':'ltr'}}
           onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} }}
           onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,110)+'px'}}
         />
+
+        {/* Mic button */}
+        <button onClick={listening ? stopListening : startListening}
+          title={rtl?'تحدث للمرشد':'Voice input'}
+          style={{width:44,height:44,borderRadius:'50%',border:`1px solid ${listening?'rgba(212,168,67,.5)':'#1a2e1f'}`,background:listening?'rgba(212,168,67,.15)':'transparent',color:listening?'#d4a843':'#7a9082',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:18,transition:'all .2s',animation:listening?'pulse 1s ease-in-out infinite':undefined}}>
+          {listening ? '⏹' : '🎤'}
+        </button>
+
         <button onClick={send} disabled={!input.trim()||loading} style={{width:44,height:44,borderRadius:'50%',border:'none',flexShrink:0,background:input.trim()&&!loading?'#d4a843':'#1a2e1f',color:input.trim()&&!loading?'#060e09':'#3a5045',cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s'}}>
           <IcSend s={17}/>
         </button>
@@ -1564,19 +1651,27 @@ function SupportModal({lang,onClose}) {
 
   async function donate() {
     setPaying(true); setErr(null)
+    // Open blank window NOW (before any async) — avoids popup-blocker
+    const payWin = window.open('', '_blank')
     try {
       const ref='ZK'+Date.now()
       const now=new Date(), pad=n=>String(n).padStart(2,'0')
       const dt=String(now.getFullYear()).slice(2)+pad(now.getMonth()+1)+pad(now.getDate())+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())
       const res=await fetch('/api/payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amount*100,merchantReference:ref,dateTime:dt})})
       const data=await res.json()
-      if(data.error){throw new Error(data.error)}
+      if(data.error){payWin?.close();throw new Error(data.error)}
+      const payUrl=`https://pgw.paysky.io/PaymentPage?MerchantId=${data.merchantId}&TerminalId=${data.terminalId}&Amount=${amount*100}&MerchantReference=${ref}&DateTimeLocalTrxn=${dt}&SecureHash=${data.secureHash}`
       const LB=window.Lightbox
-      if(!LB?.Checkout){window.open(`https://pgw.paysky.io/PaymentPage?MerchantId=${data.merchantId}&TerminalId=${data.terminalId}&Amount=${amount*100}&MerchantReference=${ref}&DateTimeLocalTrxn=${dt}&SecureHash=${data.secureHash}`,'_blank');onClose();return}
+      if(!LB?.Checkout){
+        // Navigate the already-open window — no popup block
+        if(payWin && !payWin.closed) { payWin.location.href=payUrl } else { window.location.href=payUrl }
+        onClose(); return
+      }
+      payWin?.close() // using lightbox instead
       LB.Checkout.configure({MerchantId:data.merchantId,TerminalId:data.terminalId,Amount:amount*100,MerchantReference:ref,DateTimeLocalTrxn:dt,SecureHash:data.secureHash,
-        completeCallback:()=>onClose(),errorCallback:()=>{setErr(rtl?'فشل الدفع. حاول مرة أخرى.':'Payment failed. Please try again.');setPaying(false)},cancelCallback:()=>setPaying(false)})
+        completeCallback:()=>onClose(),errorCallback:()=>{setErr(rtl?'فشل الدفع. حاول مرة أخرى.':'Payment failed. Please try again.');setPaying(false)},cancelCallback:()=>{setPaying(false)}})
       LB.Checkout.showLightbox()
-    } catch(e){setErr(e.message);setPaying(false)}
+    } catch(e){payWin?.close();setErr(e.message);setPaying(false)}
   }
 
   return (
