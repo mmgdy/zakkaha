@@ -374,7 +374,7 @@ function Onboarding({lang,setLang,onComplete}) {
               <div style={{background:'rgba(212,168,67,.07)',border:'1px solid rgba(212,168,67,.18)',borderRadius:8,padding:'14px 16px'}}>
                 <div style={{color:'#d4a843',fontSize:18,fontStyle:'italic',marginBottom:6}}>وَقَدْ أَفْلَحَ مَن زَكَّاهَا</div>
                 <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui',lineHeight:1.5}}>
-                  {lang==='en'?'"And he has succeeded who purifies it." — Ash-Shams 91:9':'"وقد أفلح من زكّاها" — سورة الشمس ٩١:٩'}
+                  {lang==='en'?'"He has succeeded who purifies it." — Ash-Shams 91:9':'"قَدْ أَفْلَحَ مَن زَكَّاهَا" — سورة الشمس ٩١:٩'}
                 </div>
               </div>
             </>
@@ -1665,33 +1665,46 @@ function SupportModal({lang,onClose}) {
   const [payUrl,setPayUrl]=useState(null)   // generated URL ready to tap
 
   useEffect(()=>{
-    const url=process.env.NEXT_PUBLIC_PAYSKY_LIGHTBOX_URL||'https://pgw.paysky.io/PaymentPage/js/lightbox.js'
-    if(!document.querySelector(`script[src="${url}"]`)){const s=document.createElement('script');s.src=url;s.async=true;document.head.appendChild(s)}
+    // Production Lightbox JS — from Paysky docs: cube.paysky.io:6006/js/LightBox.js
+    const lbUrl = 'https://cube.paysky.io:6006/js/LightBox.js'
+    if(!document.querySelector(`script[src="${lbUrl}"]`)){
+      const s=document.createElement('script'); s.src=lbUrl; s.async=true; document.head.appendChild(s)
+    }
   },[])
 
   async function preparePayment() {
     setPaying(true); setErr(null); setPayUrl(null)
     try {
       const ref='ZK'+Date.now()
-      const now=new Date(), pad=n=>String(n).padStart(2,'0')
-      const dt=String(now.getFullYear()).slice(2)+pad(now.getMonth()+1)+pad(now.getDate())+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds())
-      const res=await fetch('/api/payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:amount*100,merchantReference:ref,dateTime:dt})})
+      // dateTime is now generated server-side in correct format (YYYYMMDDHHmm)
+      const res=await fetch('/api/payment',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({amount:amount*100, merchantReference:ref})})
       const data=await res.json()
       if(data.error) throw new Error(data.error)
-      const url=`https://pgw.paysky.io/PaymentPage?MerchantId=${data.merchantId}&TerminalId=${data.terminalId}&Amount=${amount*100}&MerchantReference=${ref}&DateTimeLocalTrxn=${dt}&SecureHash=${data.secureHash}`
-      // Try lightbox first — if unavailable, show tappable link
+
+      // Try Lightbox first (per Paysky docs: param names are MID, TID, AmountTrxn, TrxDateTime)
       const LB=window.Lightbox
       if(LB?.Checkout){
-        LB.Checkout.configure({MerchantId:data.merchantId,TerminalId:data.terminalId,Amount:amount*100,MerchantReference:ref,DateTimeLocalTrxn:dt,SecureHash:data.secureHash,
-          completeCallback:()=>onClose(),errorCallback:()=>{setErr(rtl?'فشل الدفع. حاول مرة أخرى.':'Payment failed. Please try again.');setPaying(false)},cancelCallback:()=>setPaying(false)})
+        LB.Checkout.configure({
+          MID:               data.merchantId,
+          TID:               data.terminalId,
+          AmountTrxn:        data.amount,
+          MerchantReference: ref,
+          TrxDateTime:       data.dateTime,
+          SecureHash:        data.secureHash,
+          completeCallback:  ()=>{ onClose() },
+          errorCallback:     ()=>{ setErr(rtl?'فشل الدفع. حاول مرة أخرى.':'Payment failed. Please try again.'); setPaying(false) },
+          cancelCallback:    ()=>{ setPaying(false) },
+        })
         LB.Checkout.showLightbox()
         setPaying(false)
       } else {
-        // Show link — user taps it directly (avoids all popup blockers)
+        // Fallback: direct payment page link — user taps it (no popup blocker risk)
+        const url=`https://pgw.paysky.io/PaymentPage?MerchantId=${data.merchantId}&TerminalId=${data.terminalId}&Amount=${data.amount}&MerchantReference=${ref}&DateTimeLocalTrxn=${data.dateTime}&SecureHash=${data.secureHash}`
         setPayUrl(url)
         setPaying(false)
       }
-    } catch(e){setErr(e.message);setPaying(false)}
+    } catch(e){ setErr(e.message); setPaying(false) }
   }
 
   return (
