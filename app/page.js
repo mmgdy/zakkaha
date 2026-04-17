@@ -86,29 +86,31 @@ const PWA = {
     }, { once: false })
     reg.active.postMessage({ type: 'PREFETCH_QURAN' })
   },
-  // Schedule a local notification — timer lives in page thread (SW timers get killed)
+  // Schedule a local notification — timers live in page thread (SW timers get killed by browser)
   scheduleNotif: async (id, delayMs, title, body, tag, url) => {
-    if (typeof window === 'undefined') return
-    // Cancel any existing timer for this id
-    if (PWA._timers && PWA._timers[id]) clearTimeout(PWA._timers[id])
+    if (typeof window === 'undefined' || Notification.permission !== 'granted') return
     if (!PWA._timers) PWA._timers = {}
+    if (PWA._timers[id]) clearTimeout(PWA._timers[id])
     PWA._timers[id] = setTimeout(async () => {
-      // First try SW showNotification (works in background tab)
+      // Try SW first (works even when tab is in background)
       try {
-        const reg = await navigator.serviceWorker.ready
-        if (reg?.active) {
-          reg.active.postMessage({ type:'SHOW_NOTIFICATION_NOW', notification:{title,body,tag,url} })
+        const swReady = await Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 2000))
+        ])
+        if (swReady?.active) {
+          swReady.active.postMessage({ type:'SHOW_NOTIFICATION_NOW', notification:{title,body,tag,url} })
           return
         }
       } catch {}
       // Fallback: direct Notification API (foreground only)
-      if (Notification.permission === 'granted') {
+      try {
         new Notification(title, {
           body, icon: '/icons/icon-192.png',
           tag: tag || id, vibrate: [200,100,200],
           data: { url: url || '/' }
         })
-      }
+      } catch {}
     }, delayMs)
   },
 }
@@ -372,7 +374,7 @@ function Onboarding({lang,setLang,onComplete}) {
                 {lang==='en'?', the purification of the soul.':'، تطهير الروح.'}
               </p>
               <div style={{background:'rgba(212,168,67,.07)',border:'1px solid rgba(212,168,67,.18)',borderRadius:8,padding:'14px 16px'}}>
-                <div style={{color:'#d4a843',fontSize:18,fontStyle:'italic',marginBottom:6}}>وَقَدْ أَفْلَحَ مَن زَكَّاهَا</div>
+                <div style={{color:'#d4a843',fontSize:18,fontStyle:'italic',marginBottom:6}}>قَدْ أَفْلَحَ مَن زَكَّاهَا</div>
                 <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui',lineHeight:1.5}}>
                   {lang==='en'?'"He has succeeded who purifies it." — Ash-Shams 91:9':'"قَدْ أَفْلَحَ مَن زَكَّاهَا" — سورة الشمس ٩١:٩'}
                 </div>
@@ -1444,6 +1446,30 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
     ?['كيف أتغلب على الكسل وأبني روتيناً يومياً؟','أعاني من كثرة التفكير والقلق، كيف أتعامل مع ذلك؟','ما الخطوة العملية الأولى لتطوير أخلاقي؟']
     :['How do I build a consistent daily routine with ibadah?','I struggle with anxiety and overthinking. What does Islam say?','What is the first practical step to improve my character?']
 
+  // ── Dorar Hadith search ──────────────────────────────────────────────────
+  const [hadithQ,     setHadithQ]    = useState('')
+  const [hadithRes,   setHadithRes]  = useState(null)
+  const [hadithLoad,  setHadithLoad] = useState(false)
+
+  async function searchHadith() {
+    if (!hadithQ.trim()) return
+    setHadithLoad(true); setHadithRes(null)
+    try {
+      const res = await fetch(`/api/hadith?q=${encodeURIComponent(hadithQ)}`)
+      const data = await res.json()
+      setHadithRes(data.ahadith || [])
+    } catch { setHadithRes([]) }
+    setHadithLoad(false)
+  }
+
+  function insertHadithToInput(h) {
+    const cite = rtl
+      ? `أريد نصيحة مرتبطة بهذا الحديث: "${h.text}" — ${h.source}`
+      : `Please give advice related to this hadith: "${h.text}" — ${h.source}`
+    setInput(cite)
+    setHadithRes(null); setHadithQ('')
+  }
+
   return (
     <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 70px)'}} className="zk-mentor-h" dir={rtl?'rtl':'ltr'}>
       <div style={{background:'#0c1a0f',borderBottom:'1px solid #1a2e1f',padding:'52px 20px 14px',flexShrink:0,position:'relative',overflow:'hidden'}}>
@@ -1490,6 +1516,38 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
         <div ref={endRef}/>
       </div>
 
+      {/* ── Dorar Hadith Results Panel — sibling above input bar ── */}
+      {hadithRes !== null && (
+        <div style={{flexShrink:0,background:'#0a1a0c',borderTop:'1px solid rgba(212,168,67,.2)',maxHeight:220,overflowY:'auto',padding:'10px 12px'}}>
+          <div style={{color:'#d4a843',fontSize:10,letterSpacing:2,fontFamily:'system-ui',marginBottom:8}}>
+            {rtl ? `📿 نتائج الدرر السنية (${hadithRes.length})` : `📿 Dorar results (${hadithRes.length})`}
+          </div>
+          {hadithLoad && <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui',padding:'8px 0'}}>{rtl?'جارٍ البحث...':'Searching...'}</div>}
+          {!hadithLoad && hadithRes.length === 0 && (
+            <div style={{color:'#3a5045',fontSize:12,fontFamily:'system-ui'}}>{rtl?'لا نتائج — جرب كلمة أخرى':'No results — try another keyword'}</div>
+          )}
+          {hadithRes.map((h,i) => (
+            <button key={i} onClick={()=>insertHadithToInput(h)}
+              style={{display:'block',width:'100%',background:'rgba(212,168,67,.05)',border:'1px solid rgba(212,168,67,.12)',borderRadius:8,padding:'10px 12px',marginBottom:6,cursor:'pointer',textAlign:'right',direction:'rtl'}}>
+              <div style={{color:'#e8dfc8',fontSize:13,lineHeight:1.7,fontFamily:"'Amiri',Georgia,serif",marginBottom:4,whiteSpace:'pre-wrap',textAlign:'right'}}>
+                {h.text?.replace(/<[^>]+>/g,'').slice(0,180)}{h.text?.length>180?'...':''}
+              </div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {h.narrator&&<span style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>رواه: {h.narrator}</span>}
+                {h.grade&&<span style={{color:'#2d9b6f',fontSize:10,fontFamily:'system-ui',background:'rgba(45,155,111,.1)',padding:'1px 6px',borderRadius:4}}>{h.grade}</span>}
+                {h.source&&<span style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui'}}>{h.source}</span>}
+              </div>
+              <div style={{color:'#d4a843',fontSize:9,fontFamily:'system-ui',marginTop:4}}>{rtl?'اضغط لاستشارة المرشد ←':'Tap to ask mentor →'}</div>
+            </button>
+          ))}
+          <button onClick={()=>{setHadithRes(null);setHadithQ('')}}
+            style={{background:'none',border:'none',color:'#3a5045',fontSize:11,fontFamily:'system-ui',cursor:'pointer',padding:'4px 0'}}>
+            {rtl?'✕ إغلاق':'✕ Close'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Input bar ── */}
       <div style={{flexShrink:0,background:'#0c1a0f',borderTop:'1px solid #1a2e1f',padding:'10px 12px',display:'flex',gap:9,alignItems:'flex-end'}}>
         {/* TTS toggle */}
         <button onClick={()=>{ setTtsOn(p=>!p); if(window.speechSynthesis) window.speechSynthesis.cancel() }}
@@ -1498,11 +1556,34 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
           {ttsOn ? '🔊' : '🔇'}
         </button>
 
-        <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder={t(lang,'m_ph')} rows={1}
-          style={{flex:1,background:'rgba(255,255,255,.05)',border:'1px solid #1a2e1f',color:'#f0e8d8',padding:'12px 14px',borderRadius:22,fontSize:14,fontFamily:'system-ui',resize:'none',outline:'none',minHeight:44,maxHeight:110,lineHeight:1.5,direction:rtl?'rtl':'ltr'}}
-          onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} }}
-          onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,110)+'px'}}
-        />
+        {/* Dorar hadith search toggle */}
+        <button onClick={()=>{ if(hadithRes!==null){setHadithRes(null);setHadithQ('')}else{setHadithRes([])} }}
+          title={rtl?'بحث في الحديث النبوي (الدرر السنية)':'Search Hadith (Dorar)'}
+          style={{width:38,height:38,borderRadius:'50%',border:`1px solid ${hadithRes!==null?'rgba(212,168,67,.4)':'#1a2e1f'}`,background:hadithRes!==null?'rgba(212,168,67,.1)':'transparent',color:hadithRes!==null?'#d4a843':'#3a5045',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:15,transition:'all .2s'}}>
+          📿
+        </button>
+
+        {/* Hadith search input OR message input */}
+        {hadithRes !== null ? (
+          <div style={{flex:1,display:'flex',gap:6}}>
+            <input value={hadithQ} onChange={e=>setHadithQ(e.target.value)}
+              onKeyDown={e=>{if(e.key==='Enter')searchHadith()}}
+              placeholder={rtl?'ابحث في الحديث النبوي...':'Search hadith...'}
+              dir="rtl"
+              style={{flex:1,background:'rgba(255,255,255,.05)',border:'1px solid rgba(212,168,67,.25)',color:'#f0e8d8',padding:'10px 14px',borderRadius:22,fontSize:14,fontFamily:'system-ui',outline:'none'}}
+            />
+            <button onClick={searchHadith} disabled={!hadithQ.trim()||hadithLoad}
+              style={{width:44,height:44,borderRadius:'50%',border:'none',background:hadithQ.trim()?'#d4a843':'#1a2e1f',color:hadithQ.trim()?'#060e09':'#3a5045',cursor:hadithQ.trim()?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}>
+              {hadithLoad?'⏳':'🔍'}
+            </button>
+          </div>
+        ) : (
+          <textarea value={input} onChange={e=>setInput(e.target.value)} placeholder={t(lang,'m_ph')} rows={1}
+            style={{flex:1,background:'rgba(255,255,255,.05)',border:'1px solid #1a2e1f',color:'#f0e8d8',padding:'12px 14px',borderRadius:22,fontSize:14,fontFamily:'system-ui',resize:'none',outline:'none',minHeight:44,maxHeight:110,lineHeight:1.5,direction:rtl?'rtl':'ltr'}}
+            onKeyDown={e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()} }}
+            onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,110)+'px'}}
+          />
+        )}
 
         {/* Mic button */}
         <button onClick={listening ? stopListening : startListening}
@@ -1511,9 +1592,11 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
           {listening ? '⏹' : '🎤'}
         </button>
 
-        <button onClick={send} disabled={!input.trim()||loading} style={{width:44,height:44,borderRadius:'50%',border:'none',flexShrink:0,background:input.trim()&&!loading?'#d4a843':'#1a2e1f',color:input.trim()&&!loading?'#060e09':'#3a5045',cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s'}}>
-          <IcSend s={17}/>
-        </button>
+        {hadithRes === null && (
+          <button onClick={send} disabled={!input.trim()||loading} style={{width:44,height:44,borderRadius:'50%',border:'none',flexShrink:0,background:input.trim()&&!loading?'#d4a843':'#1a2e1f',color:input.trim()&&!loading?'#060e09':'#3a5045',cursor:input.trim()&&!loading?'pointer':'default',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s'}}>
+            <IcSend s={17}/>
+          </button>
+        )}
       </div>
     </div>
   )
@@ -1685,7 +1768,8 @@ function SupportModal({lang,onClose}) {
       // Try Lightbox first (per Paysky docs: param names are MID, TID, AmountTrxn, TrxDateTime)
       const LB=window.Lightbox
       if(LB?.Checkout){
-        LB.Checkout.configure({
+        // Per Paysky docs: configure is a property assignment, NOT a function call
+        LB.Checkout.configure = {
           MID:               data.merchantId,
           TID:               data.terminalId,
           AmountTrxn:        data.amount,
@@ -1695,7 +1779,7 @@ function SupportModal({lang,onClose}) {
           completeCallback:  ()=>{ onClose() },
           errorCallback:     ()=>{ setErr(rtl?'فشل الدفع. حاول مرة أخرى.':'Payment failed. Please try again.'); setPaying(false) },
           cancelCallback:    ()=>{ setPaying(false) },
-        })
+        }
         LB.Checkout.showLightbox()
         setPaying(false)
       } else {
