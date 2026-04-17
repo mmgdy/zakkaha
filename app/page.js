@@ -432,6 +432,36 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
   const fa=FOCUS_AREAS.find(f=>f.id===user.focusArea)||FOCUS_AREAS[0]
   const verse=DAILY_VERSES[new Date().getDay()%DAILY_VERSES.length]
 
+  // ── Daily Hadith from Dorar ──────────────────────────────────────────────
+  const [dailyHadith,  setDailyHadith]  = useState(null)
+  const [hadithCheckerOpen, setHadithCheckerOpen] = useState(false)
+  const [verifyText,   setVerifyText]   = useState('')
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [verifyLoading,setVerifyLoading]= useState(false)
+
+  useEffect(() => {
+    const cacheKey = `zk:dailyhadith-${user.focusArea}-${new Date().toDateString()}`
+    const cached = S.get(cacheKey)
+    if (cached) { setDailyHadith(cached); return }
+    fetch(`/api/hadith?focus=${user.focusArea||'patience'}`)
+      .then(r => r.json())
+      .then(d => {
+        const h = d.ahadith?.[0]
+        if (h) { setDailyHadith(h); S.set(cacheKey, h) }
+      }).catch(() => {})
+  }, [user.focusArea])
+
+  async function verifyHadith() {
+    if (!verifyText.trim()) return
+    setVerifyLoading(true); setVerifyResult(null)
+    try {
+      const res = await fetch(`/api/hadith?verify=${encodeURIComponent(verifyText)}`)
+      const data = await res.json()
+      setVerifyResult(data.ahadith || [])
+    } catch { setVerifyResult([]) }
+    setVerifyLoading(false)
+  }
+
   return (
     <div dir={rtl?'rtl':'ltr'}>
       <div className="zk-banner" style={{background:'linear-gradient(180deg,#0f1f12,#060e09)',padding:'52px 20px 20px',position:'relative',overflow:'hidden'}}>
@@ -574,6 +604,96 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
           <div style={{color:'#7a9082',fontSize:9,letterSpacing:3,fontFamily:'system-ui',marginBottom:10}}>{t(lang,'daily_ref')}</div>
           <div style={{color:'#d4a843',fontSize:18,fontStyle:'italic',lineHeight:1.7,marginBottom:8}}>{verse.arabic}</div>
           <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui',lineHeight:1.5}}>{verse.en} — {verse.ref}</div>
+        </Card>
+
+        {/* ── حديث اليوم — Dorar Daily Hadith ── */}
+        {dailyHadith && (
+          <Card style={{marginBottom:11,border:'1px solid rgba(45,155,111,.2)',position:'relative',overflow:'hidden'}}>
+            <div style={{position:'absolute',top:0,right:0,background:'rgba(45,155,111,.08)',padding:'3px 10px',borderRadius:'0 0 0 8px'}}>
+              <span style={{color:'#2d9b6f',fontSize:9,letterSpacing:2,fontFamily:'system-ui'}}>📿 الدرر السنية</span>
+            </div>
+            <div style={{color:'#7a9082',fontSize:9,letterSpacing:3,fontFamily:'system-ui',marginBottom:10,marginTop:6}}>
+              {rtl?`حديث اليوم — ${fa.arabic}`:`Today's Hadith — ${fa.label}`}
+            </div>
+            <div style={{color:'#f0e8d8',fontSize:16,lineHeight:2,fontFamily:"'Amiri',Georgia,serif",direction:'rtl',textAlign:'right',marginBottom:10}}>
+              {dailyHadith.text}
+            </div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',marginBottom:8}}>
+              {dailyHadith.narrator&&<span style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>رواه: {dailyHadith.narrator}</span>}
+              {dailyHadith.grade&&(
+                <span style={{
+                  color: dailyHadith.grade.includes('صحيح')?'#2d9b6f':dailyHadith.grade.includes('ضعيف')?'#e07050':'#d4a843',
+                  background: dailyHadith.grade.includes('صحيح')?'rgba(45,155,111,.12)':dailyHadith.grade.includes('ضعيف')?'rgba(224,112,80,.1)':'rgba(212,168,67,.1)',
+                  fontSize:10,fontFamily:'system-ui',padding:'2px 8px',borderRadius:4,fontWeight:600
+                }}>{dailyHadith.grade}</span>
+              )}
+              {dailyHadith.source&&<span style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui'}}>{dailyHadith.source}</span>}
+            </div>
+            <a href={dailyHadith.dorarUrl||'https://dorar.net'} target="_blank" rel="noreferrer"
+              style={{display:'flex',alignItems:'center',gap:5,color:'#2d9b6f',fontSize:11,fontFamily:'system-ui',textDecoration:'none'}}>
+              <IcGlobe s={12}/> {rtl?'اقرأ المزيد على الدرر السنية ←':'Read more on Dorar.net →'}
+            </a>
+          </Card>
+        )}
+
+        {/* ── تحقق من الحديث — Hadith Checker ── */}
+        <Card style={{marginBottom:11,border:'1px solid rgba(212,168,67,.12)'}}>
+          <button onClick={()=>{setHadithCheckerOpen(p=>!p);setVerifyResult(null);setVerifyText('')}}
+            style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',padding:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:20}}>🔍</span>
+              <div style={{textAlign:'right',direction:'rtl'}}>
+                <div style={{color:'#f0e8d8',fontSize:13}}>{rtl?'تحقق من صحة الحديث':'Verify Hadith Authenticity'}</div>
+                <div style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>{rtl?'الدرر السنية — محدثون موثوقون':'Dorar.net — trusted scholars'}</div>
+              </div>
+            </div>
+            <span style={{color:'#3a5045',fontSize:14}}>{hadithCheckerOpen?'▲':'▼'}</span>
+          </button>
+
+          {hadithCheckerOpen && (
+            <div style={{marginTop:12,direction:'rtl'}}>
+              <textarea
+                value={verifyText} onChange={e=>setVerifyText(e.target.value)}
+                placeholder={rtl?'الصق نص الحديث هنا...':'Paste hadith text here...'}
+                rows={3} dir="rtl"
+                style={{width:'100%',background:'rgba(255,255,255,.04)',border:'1px solid #1a2e1f',color:'#f0e8d8',padding:'10px 12px',borderRadius:8,fontSize:13,fontFamily:"'Amiri',Georgia,serif",resize:'none',outline:'none',boxSizing:'border-box',lineHeight:1.8}}
+              />
+              <button onClick={verifyHadith} disabled={!verifyText.trim()||verifyLoading}
+                style={{width:'100%',marginTop:8,padding:'10px',background:verifyText.trim()?'#d4a843':'#1a2e1f',color:verifyText.trim()?'#060e09':'#3a5045',border:'none',borderRadius:8,fontSize:13,fontFamily:'system-ui',cursor:verifyText.trim()?'pointer':'default',fontWeight:600,transition:'all .2s'}}>
+                {verifyLoading?(rtl?'...جارٍ التحقق':'Checking...'):(rtl?'تحقق من الحديث 🔍':'Verify Hadith 🔍')}
+              </button>
+
+              {verifyResult !== null && (
+                <div style={{marginTop:10}}>
+                  {verifyResult.length === 0 ? (
+                    <div style={{color:'#e07050',fontSize:12,fontFamily:'system-ui',padding:'8px 0'}}>
+                      {rtl?'⚠ لم يُعثر على هذا الحديث في قاعدة الدرر السنية':'⚠ Hadith not found in Dorar database'}
+                    </div>
+                  ) : verifyResult.map((h,i) => (
+                    <div key={i} style={{background:'rgba(45,155,111,.05)',border:'1px solid #1a2e1f',borderRadius:8,padding:'10px 12px',marginBottom:6}}>
+                      <div style={{color:'#e8dfc8',fontSize:13,lineHeight:1.8,fontFamily:"'Amiri',Georgia,serif",marginBottom:6,direction:'rtl',textAlign:'right'}}>
+                        {h.text.slice(0,200)}{h.text.length>200?'...':''}
+                      </div>
+                      <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                        {h.grade&&(
+                          <span style={{
+                            color: h.grade.includes('صحيح')?'#2d9b6f':h.grade.includes('ضعيف')?'#e07050':'#d4a843',
+                            background: h.grade.includes('صحيح')?'rgba(45,155,111,.15)':h.grade.includes('ضعيف')?'rgba(224,112,80,.1)':'rgba(212,168,67,.1)',
+                            fontSize:11,fontFamily:'system-ui',padding:'3px 10px',borderRadius:4,fontWeight:700,
+                          }}>{h.grade.includes('صحيح')?'✓ '+h.grade:h.grade.includes('ضعيف')?'⚠ '+h.grade:h.grade}</span>
+                        )}
+                        {h.source&&<span style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui'}}>{h.source}</span>}
+                      </div>
+                    </div>
+                  ))}
+                  <a href={`https://dorar.net/hadith/search?skey=${encodeURIComponent(verifyText.slice(0,30))}`} target="_blank" rel="noreferrer"
+                    style={{display:'flex',alignItems:'center',gap:5,color:'#2d9b6f',fontSize:11,fontFamily:'system-ui',textDecoration:'none',marginTop:6}}>
+                    <IcGlobe s={12}/> {rtl?'تفصيل أكثر على الدرر السنية':'Full results on Dorar.net'}
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Action buttons */}
@@ -1882,6 +2002,28 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
   const rtl=lang==='ar'
   const lv=getLevelInfo(user.xp), xpPct=Math.min((user.xp/lv.next)*100,100)
   const fa=FOCUS_AREAS.find(f=>f.id===user.focusArea)||FOCUS_AREAS[0]
+
+  // ── Nawawi 40 ────────────────────────────────────────────────────────────
+  const [nawawiOpen,  setNawawiOpen]  = useState(false)
+  const [nawawiIdx,   setNawawiIdx]   = useState(0)
+  const [nawawiH,     setNawawiH]     = useState(null)
+  const [nawawiLoad,  setNawawiLoad]  = useState(false)
+
+  async function loadNawawi(idx) {
+    setNawawiLoad(true); setNawawiH(null)
+    try {
+      const res = await fetch(`/api/hadith?nawawi=1&idx=${idx}`)
+      const d   = await res.json()
+      setNawawiH(d.ahadith?.[0] || null)
+    } catch {}
+    setNawawiLoad(false)
+  }
+
+  useEffect(() => { if (nawawiOpen) loadNawawi(nawawiIdx) }, [nawawiOpen])
+
+  function nawawiNext() { const i=(nawawiIdx+1)%20; setNawawiIdx(i); loadNawawi(i) }
+  function nawawiPrev() { const i=(nawawiIdx+19)%20; setNawawiIdx(i); loadNawawi(i) }
+
   return (
     <div dir={rtl?'rtl':'ltr'} className="zk-page" style={{paddingTop:52}}>
       {/* Profile card */}
@@ -2019,6 +2161,81 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
           <ProgBar pct={(quranDL.done/114)*100} color="linear-gradient(90deg,#2d9b6f,#d4a843)" h={5}/>
         )}
       </Card>
+
+      {/* ── الأربعون النووية — Nawawi 40 ── */}
+      <Card style={{marginBottom:12,border:'1px solid rgba(212,168,67,.15)'}}>
+        <button onClick={()=>setNawawiOpen(p=>!p)}
+          style={{width:'100%',background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between',padding:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{width:40,height:40,borderRadius:10,background:'rgba(212,168,67,.08)',border:'1px solid rgba(212,168,67,.2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>📜</div>
+            <div style={{textAlign:rtl?'right':'left'}}>
+              <div style={{color:'#f0e8d8',fontSize:14,marginBottom:2}}>{rtl?'الأربعون النووية':'Nawawi\'s 40 Hadiths'}</div>
+              <div style={{color:'#7a9082',fontSize:11,fontFamily:'system-ui'}}>{rtl?'٢٠ حديثاً مختاراً — الدرر السنية':'20 selected hadiths — Dorar.net'}</div>
+            </div>
+          </div>
+          <span style={{color:'#d4a843',fontSize:14,flexShrink:0}}>{nawawiOpen?'▲':'▼'}</span>
+        </button>
+
+        {nawawiOpen && (
+          <div style={{marginTop:14,direction:'rtl'}}>
+            {nawawiLoad && (
+              <div style={{textAlign:'center',padding:20}}>
+                <div style={{width:24,height:24,border:'2px solid #1a2e1f',borderTopColor:'#d4a843',borderRadius:'50%',margin:'0 auto 8px',animation:'spin 1s linear infinite'}}/>
+                <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui'}}>{rtl?'جارٍ التحميل...':'Loading...'}</div>
+              </div>
+            )}
+            {!nawawiLoad && nawawiH && (
+              <>
+                <div style={{color:'#d4a843',fontSize:9,letterSpacing:2,fontFamily:'system-ui',marginBottom:8}}>
+                  {rtl?`الحديث ${nawawiIdx+1} من 20`:`Hadith ${nawawiIdx+1} of 20`}
+                </div>
+                <div style={{color:'#f0e8d8',fontSize:15,lineHeight:2.1,fontFamily:"'Amiri',Georgia,serif",marginBottom:10,textAlign:'right'}}>
+                  {nawawiH.text}
+                </div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end',marginBottom:12}}>
+                  {nawawiH.narrator&&<span style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>رواه: {nawawiH.narrator}</span>}
+                  {nawawiH.grade&&(
+                    <span style={{
+                      color:nawawiH.grade.includes('صحيح')?'#2d9b6f':'#d4a843',
+                      background:nawawiH.grade.includes('صحيح')?'rgba(45,155,111,.12)':'rgba(212,168,67,.1)',
+                      fontSize:10,fontFamily:'system-ui',padding:'2px 8px',borderRadius:4,fontWeight:600
+                    }}>{nawawiH.grade}</span>
+                  )}
+                  {nawawiH.source&&<span style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui'}}>{nawawiH.source}</span>}
+                </div>
+                <div style={{display:'flex',gap:8,justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={nawawiPrev} style={{background:'rgba(255,255,255,.05)',border:'1px solid #1a2e1f',color:'#7a9082',borderRadius:8,padding:'8px 14px',fontSize:13,cursor:'pointer'}}>
+                      {rtl?'← السابق':'← Prev'}
+                    </button>
+                    <button onClick={nawawiNext} style={{background:'#d4a843',border:'none',color:'#060e09',borderRadius:8,padding:'8px 14px',fontSize:13,cursor:'pointer',fontWeight:600}}>
+                      {rtl?'التالي →':'Next →'}
+                    </button>
+                  </div>
+                  <a href={nawawiH.dorarUrl||'https://dorar.net'} target="_blank" rel="noreferrer"
+                    style={{color:'#2d9b6f',fontSize:11,fontFamily:'system-ui',textDecoration:'none',display:'flex',alignItems:'center',gap:4}}>
+                    <IcGlobe s={11}/> {rtl?'الدرر السنية':'Dorar.net'}
+                  </a>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* ── زر الدرر السنية الكامل ── */}
+      <a href="https://dorar.net" target="_blank" rel="noreferrer" style={{textDecoration:'none',display:'block',marginBottom:12}}>
+        <div style={{background:'linear-gradient(135deg,#0a1a0c,#0f1f12)',border:'1px solid rgba(45,155,111,.3)',borderRadius:14,padding:'16px 18px',display:'flex',alignItems:'center',gap:14,transition:'all .2s'}}>
+          <div style={{width:46,height:46,borderRadius:12,background:'rgba(45,155,111,.15)',border:'1px solid rgba(45,155,111,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🕌</div>
+          <div style={{flex:1}}>
+            <div style={{color:'#f0e8d8',fontSize:14,marginBottom:3}}>{rtl?'الدرر السنية — الموسوعة الحديثية':'Dorar.net — Hadith Encyclopedia'}</div>
+            <div style={{color:'#7a9082',fontSize:11,fontFamily:'system-ui',lineHeight:1.6}}>
+              {rtl?'مئات الآلاف من الأحاديث بأحكام العلماء · صحيح · ضعيف · موضوع':'Hundreds of thousands of hadiths with scholarly grades'}
+            </div>
+          </div>
+          <div style={{color:'#2d9b6f',fontSize:18,flexShrink:0}}>←</div>
+        </div>
+      </a>
 
     </div>
   )
