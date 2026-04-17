@@ -1,9 +1,9 @@
 // ── Zakkaha Service Worker ────────────────────────────────────────────────────
 // Handles: offline Quran cache, push notifications, background sync
 
-const CACHE_VERSION  = 'zakkaha-v3'
+const CACHE_VERSION  = 'zakkaha-v4'
 const QURAN_CACHE    = 'zakkaha-quran-v1'
-const STATIC_CACHE   = 'zakkaha-static-v3'
+const STATIC_CACHE   = 'zakkaha-static-v4'
 
 // Static assets to cache on install
 const STATIC_ASSETS = ['/', '/manifest.json']
@@ -104,8 +104,30 @@ self.addEventListener('message', e => {
   if (e.data?.type === 'PREFETCH_QURAN') {
     e.waitUntil(prefetchAllSurahs(e.data.progress))
   }
+  // Show notification immediately — timers are kept in the page thread, not here
+  if (e.data?.type === 'SHOW_NOTIFICATION_NOW') {
+    const { title, body, tag, url, icon } = e.data.notification || {}
+    e.waitUntil(
+      self.registration.showNotification(title || 'زكّاها', {
+        body:    body || '',
+        icon:    icon || '/icons/icon-192.png',
+        badge:   '/icons/icon-192.png',
+        tag:     tag  || 'zakkaha',
+        vibrate: [200, 100, 200],
+        data:    { url: url || '/' },
+        requireInteraction: false,
+      })
+    )
+  }
+  // Legacy support
   if (e.data?.type === 'SCHEDULE_NOTIFICATION') {
-    scheduleLocalNotification(e.data.notification)
+    const n = e.data.notification || {}
+    e.waitUntil(
+      self.registration.showNotification(n.title || 'زكّاها', {
+        body: n.body || '', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png',
+        tag: n.tag || 'zakkaha', vibrate: [200,100,200], data: { url: n.url || '/' },
+      })
+    )
   }
 })
 
@@ -132,15 +154,5 @@ async function prefetchAllSurahs(onProgress) {
   clients.forEach(c => c.postMessage({ type: 'QURAN_COMPLETE' }))
 }
 
-// Local notification scheduler (fires after delay)
-const scheduledTimers = {}
-function scheduleLocalNotification({ id, delayMs, title, body, tag, url }) {
-  if (scheduledTimers[id]) clearTimeout(scheduledTimers[id])
-  scheduledTimers[id] = setTimeout(() => {
-    self.registration.showNotification(title, {
-      body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png',
-      tag: tag || id, vibrate: [200, 100, 200],
-      data: { url: url || '/' },
-    })
-  }, delayMs)
-}
+
+
