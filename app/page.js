@@ -140,7 +140,55 @@ const PRAYER_TIMES = {
   isha:    20.0,  // 8:00 PM
 }
 
-async function scheduleAllNotifications(lang, user) {
+// Built-in fallback messages (used when AI API is unavailable)
+const NOTIF_FALLBACKS = {
+  ar: {
+    fajr:    n=>`${n}، الفجر ينادي 🌅 الصلاة خير من النوم — أجب النداء`,
+    dhuhr:   n=>`الدنيا تصمت لحظة يا ${n} 🤲 صلِّ ظهرك الآن`,
+    asr:     n=>`${n}، العصر يمر كالبرق ⏰ لا تفوّت شهادة الملائكة`,
+    maghrib: n=>`${n}، الشمس تودّع بطاعة 🌅 ماذا ستقول لربك الآن؟`,
+    isha:    n=>`${n}، لا تنم قبل أن تختم يومك مع الله 🌙 صلِّ عشاءك`,
+    adhkar_m:n=>`${n}، لسانك الرطب بذكر الله حصنك اليوم 📿 الأذكار الآن`,
+    adhkar_e:n=>`${n}، المساء يطوي النهار 🌙 اختمه بذكر الله`,
+    streak:  (n,s)=>`${n}، ${s} يوم من الثبات 🔥 لا تُعطِ الشيطان ما يريد`,
+    jummah:  n=>`${n}، غداً الجمعة 🕌 فيها ساعة لا تُرد الدعوة — استعد`,
+    general: n=>`${n}، كل خطوة في طريق الله تُكتب ولا تضيع 🌿 استمر`,
+  },
+  en: {
+    fajr:    n=>`${n}, Fajr calls 🌅 Prayer is better than sleep — answer it`,
+    dhuhr:   n=>`The world can wait, ${n} 🤲 Pray your Dhuhr now`,
+    asr:     n=>`${n}, Asr passes like lightning ⏰ Don't miss the angels' testimony`,
+    maghrib: n=>`${n}, the sun bows to its Lord 🌅 What will you say to Allah?`,
+    isha:    n=>`${n}, don't sleep before sealing this day with Allah 🌙 Pray Isha`,
+    adhkar_m:n=>`${n}, your morning adhkar is your shield today 📿 Do it now`,
+    adhkar_e:n=>`Evening ${n} — seal the day with dhikr 🌙`,
+    streak:  (n,s)=>`${n}, ${s} days strong 🔥 Don't let Shaytan win today`,
+    jummah:  n=>`Tomorrow is Jummah ${n} 🕌 An hour where no dua is rejected`,
+    general: n=>`${n}, every step toward Allah is written and never wasted 🌿`,
+  }
+}
+
+async function getNotifMsg(type, lang, name, streak) {
+  // Try AI-generated message first (non-blocking, 4s timeout)
+  try {
+    const ctrl = new AbortController()
+    const tid  = setTimeout(() => ctrl.abort(), 4000)
+    const res  = await fetch('/api/notify', {
+      method: 'POST', signal: ctrl.signal,
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type, lang, userName: name, streak}),
+    })
+    clearTimeout(tid)
+    const d = await res.json()
+    if (d.message) return d.message
+  } catch {}
+  // Fallback to built-in messages (always works)
+  const msgs = NOTIF_FALLBACKS[lang] || NOTIF_FALLBACKS.en
+  const fn   = msgs[type] || msgs.general
+  return fn(name, streak)
+}
+
+function scheduleAllNotifications(lang, user) {
   if (typeof window === 'undefined') return
   if (Notification.permission !== 'granted') return
 
@@ -149,110 +197,73 @@ async function scheduleAllNotifications(lang, user) {
   const name  = user?.name || (ar ? 'أخي' : 'friend')
   const streak = user?.streak || 0
 
-  function msUntilHour(h, daysOffset = 0) {
+  function msUntilHour(h) {
     const t = new Date(now)
-    t.setDate(t.getDate() + daysOffset)
     t.setHours(Math.floor(h), Math.round((h % 1) * 60), 0, 0)
     let diff = t - now
-    if (diff <= 0 && daysOffset === 0) { t.setDate(t.getDate() + 1); diff = t - now }
-    return Math.max(diff, 1500)
+    if (diff <= 0) { t.setDate(t.getDate() + 1); diff = t - now }
+    return Math.max(diff, 5000)
   }
 
-  const day = now.getDay() // 0=Sun,1=Mon...6=Sat
+  const day = now.getDay()
 
-  // ── 5 DAILY PRAYERS ───────────────────────────────────────────────────
+  // ── Schedule prayers with built-in messages (instant, no API call) ────
   const prayers = [
-    { id: 'fajr',    type: 'fajr',    title: ar ? '🌅 وقت الفجر'    : '🌅 Fajr Time',    h: PRAYER_TIMES.fajr    },
-    { id: 'dhuhr',   type: 'dhuhr',   title: ar ? '☀️ وقت الظهر'    : '☀️ Dhuhr Time',   h: PRAYER_TIMES.dhuhr   },
-    { id: 'asr',     type: 'asr',     title: ar ? '🌤 وقت العصر'    : '🌤 Asr Time',     h: PRAYER_TIMES.asr     },
-    { id: 'maghrib', type: 'maghrib', title: ar ? '🌅 وقت المغرب'   : '🌅 Maghrib Time', h: PRAYER_TIMES.maghrib },
-    { id: 'isha',    type: 'isha',    title: ar ? '🌙 وقت العشاء'   : '🌙 Isha Time',    h: PRAYER_TIMES.isha    },
+    { id:'fajr',    type:'fajr',    title:ar?'🌅 وقت الفجر':'🌅 Fajr Time',       h:PRAYER_TIMES.fajr    },
+    { id:'dhuhr',   type:'dhuhr',   title:ar?'☀️ وقت الظهر':'☀️ Dhuhr Time',     h:PRAYER_TIMES.dhuhr   },
+    { id:'asr',     type:'asr',     title:ar?'🌤 وقت العصر':'🌤 Asr Time',         h:PRAYER_TIMES.asr     },
+    { id:'maghrib', type:'maghrib', title:ar?'🌅 وقت المغرب':'🌅 Maghrib Time',   h:PRAYER_TIMES.maghrib },
+    { id:'isha',    type:'isha',    title:ar?'🌙 وقت العشاء':'🌙 Isha Time',       h:PRAYER_TIMES.isha    },
   ]
+  const msgs = NOTIF_FALLBACKS[lang] || NOTIF_FALLBACKS.en
+  prayers.forEach(p => {
+    const body = (msgs[p.type] || msgs.general)(name, streak)
+    PWA.scheduleNotif(p.id, msUntilHour(p.h), p.title, body, p.id, '/?tab=adhkar')
+  })
 
-  for (const p of prayers) {
-    const body = await fetchNotifMsg(p.type, lang, name, streak)
-    if (body) PWA.scheduleNotif(p.id, msUntilHour(p.h), p.title, body, p.id, '/?tab=adhkar')
-  }
+  // Adhkar reminders
+  PWA.scheduleNotif('adhkar_m', msUntilHour(6.5),  ar?'📿 أذكار الصباح':'📿 Morning Adhkar', msgs.adhkar_m(name), 'adhkar_m', '/?tab=adhkar')
+  PWA.scheduleNotif('adhkar_e', msUntilHour(17.5), ar?'🌙 أذكار المساء':'🌙 Evening Adhkar', msgs.adhkar_e(name), 'adhkar_e', '/?tab=adhkar')
 
-  // ── MORNING ADHKAR ── 6:30 AM
-  const adhkarM = await fetchNotifMsg('adhkar_m', lang, name, streak)
-  if (adhkarM) PWA.scheduleNotif('adhkar_m', msUntilHour(6.5), ar ? '📿 أذكار الصباح' : '📿 Morning Adhkar', adhkarM, 'adhkar_m', '/?tab=adhkar')
-
-  // ── EVENING ADHKAR ── 5:30 PM
-  const adhkarE = await fetchNotifMsg('adhkar_e', lang, name, streak)
-  if (adhkarE) PWA.scheduleNotif('adhkar_e', msUntilHour(17.5), ar ? '🌙 أذكار المساء' : '🌙 Evening Adhkar', adhkarE, 'adhkar_e', '/?tab=adhkar')
-
-  // ── STREAK AT RISK ── 9 PM if not checked in yet
+  // Streak reminder at 9 PM if not checked in
   if (!S.get('zk:checkin-' + now.toDateString())) {
-    const streakMsg = await fetchNotifMsg('streak', lang, name, streak)
-    if (streakMsg) PWA.scheduleNotif('streak', msUntilHour(21), ar ? '🔥 لا تكسر سلسلتك' : '🔥 Protect Your Streak', streakMsg, 'streak', '/?tab=home')
+    PWA.scheduleNotif('streak', msUntilHour(21), ar?'🔥 لا تكسر سلسلتك':'🔥 Protect Your Streak', msgs.streak(name, streak), 'streak', '/?tab=home')
   }
 
-  // ── MONDAY FAST REMINDER ── Sunday 8 PM
-  if (day === 0) {
-    const fastMsg = await fetchNotifMsg('fasting', lang, name, streak, ar ? 'الاثنين' : 'Monday')
-    if (fastMsg) PWA.scheduleNotif('fast-mon', msUntilHour(20), ar ? '🤲 صيام الاثنين' : '🤲 Monday Fast Reminder', fastMsg, 'fast', '/?tab=home')
-  }
-  // ── THURSDAY FAST REMINDER ── Wednesday 8 PM
-  if (day === 3) {
-    const fastMsg = await fetchNotifMsg('fasting', lang, name, streak, ar ? 'الخميس' : 'Thursday')
-    if (fastMsg) PWA.scheduleNotif('fast-thu', msUntilHour(20), ar ? '🤲 صيام الخميس' : '🤲 Thursday Fast Reminder', fastMsg, 'fast', '/?tab=home')
-  }
+  // Jummah reminder Thursday evening
+  if (day === 4) PWA.scheduleNotif('jummah', msUntilHour(21), ar?'🕌 تذكير الجمعة':'🕌 Jummah Tomorrow', msgs.jummah(name), 'jummah', '/?tab=adhkar')
 
-  // ── JUMMAH ── Thursday 9 PM
-  if (day === 4) {
-    const jummahMsg = await fetchNotifMsg('jummah', lang, name, streak)
-    if (jummahMsg) PWA.scheduleNotif('jummah', msUntilHour(21), ar ? '🕌 تذكير الجمعة' : '🕌 Jummah Tomorrow', jummahMsg, 'jummah', '/?tab=adhkar')
-  }
-
-  // ── RAMADAN ──
-  const daysToRamadan = IslamicCal.daysUntilRamadan()
-  if (daysToRamadan > 0 && daysToRamadan <= 30) {
-    const extra = ar ? `رمضان بعد ${daysToRamadan} يوم` : `${daysToRamadan} days until Ramadan`
-    const ramMsg = await fetchNotifMsg('ramadan', lang, name, streak, extra)
-    if (ramMsg) PWA.scheduleNotif('ramadan', msUntilHour(7), ar ? '🌙 رمضان يقترب' : '🌙 Ramadan is Near', ramMsg, 'ramadan', '/?tab=challenges')
-  }
-  if (daysToRamadan === 0) {
-    const ramMsg = await fetchNotifMsg('ramadan', lang, name, streak, ar ? 'بداية رمضان' : 'Ramadan begins today')
-    if (ramMsg) PWA.scheduleNotif('ramadan-now', 2000, ar ? '🌙 رمضان كريم' : '🌙 Ramadan Mubarak', ramMsg, 'ramadan', '/?tab=challenges')
-  }
-
-  // ── DHUL HIJJAH ──
-  const hijri = IslamicCal.today()
-  if (hijri.month === 12 && hijri.day <= 10) {
-    const extra = ar ? `اليوم ${hijri.day} من ذي الحجة` : `Day ${hijri.day} of Dhul Hijjah`
-    const dhMsg = await fetchNotifMsg('general', lang, name, streak)
-    if (dhMsg) PWA.scheduleNotif('dhulhijjah', 2000, ar ? '🕋 أيام ذي الحجة' : '🕋 Blessed Dhul Hijjah', dhMsg, 'dhulhijjah', '/?tab=adhkar')
-  }
-
-  // ── SALAWAT EVERY 15 MINUTES (next 8 hours) ──────────────────────────────
-  // Rotating phrases so each notification feels fresh
+  // ── Salawat every 15 min for next 2 hours (8 notifications — they survive page reload window) ──
   const salawatPhrases = [
-    'اللهم صلِّ على محمد وعلى آل محمد 🌿',
-    'صلوا على النبي ﷺ — صلاة تُنير قلبك 💚',
-    'اللهم صلِّ وسلِّم وبارك على نبينا محمد ✨',
-    'من صلّى عليّ صلاةً صلى الله عليه بها عشراً 🤍',
-    'صلى الله على محمد — ردّدها الآن 🌙',
-    'اللهم صلِّ على محمد وأنعم علينا بحبّه 💫',
-    'دقيقة من وقتك لتصلي على خير الخلق ﷺ 🌿',
-    'الصلاة على النبي نور في الدنيا وشفاعة في الآخرة 🕌',
+    ar?'اللهم صلِّ على محمد وعلى آل محمد 🌿':'O Allah, send blessings upon Muhammad ﷺ 🌿',
+    ar?'صلوا على النبي ﷺ — صلاة تُنير قلبك 💚':'Salawat upon the Prophet ﷺ — it illuminates your heart 💚',
+    ar?'اللهم صلِّ وسلِّم وبارك على نبينا محمد ✨':'Peace and blessings upon our Prophet Muhammad ✨',
+    ar?'من صلّى عليّ مرةً صلى الله عليه عشراً 🤍':'Whoever prays upon me once, Allah prays upon him ten times 🤍',
+    ar?'صلى الله على محمد — ردّدها الآن 🌙':'Allah sends blessings upon Muhammad — say it now 🌙',
+    ar?'اللهم صلِّ على محمد وأنعم علينا بحبّه 💫':'O Allah, bless Muhammad and grant us his love 💫',
+    ar?'دقيقة من وقتك للصلاة على خير الخلق ﷺ 🌿':'One minute for blessings upon the best of creation ﷺ 🌿',
+    ar?'الصلاة على النبي نور في الدنيا وشفاعة في الآخرة 🕌':'Salawat is light in this world and intercession in the next 🕌',
   ]
-  const interval15 = 15 * 60 * 1000 // 15 minutes in ms
-  const hoursAhead  = 8               // schedule for next 8 hours
-  const totalSlots  = (hoursAhead * 60) / 15  // 32 notifications
-  for (let i = 1; i <= totalSlots; i++) {
-    const phrase = salawatPhrases[(i - 1) % salawatPhrases.length]
+  for (let i = 1; i <= 8; i++) {
     PWA.scheduleNotif(
-      `salawat-${i}`,
-      i * interval15,
-      ar ? '💚 الصلاة على النبي ﷺ' : '💚 Salawat upon the Prophet ﷺ',
-      phrase,
-      'salawat',
-      '/?tab=adhkar'
+      `salawat-${i}`, i * 15 * 60 * 1000,
+      ar?'💚 الصلاة على النبي ﷺ':'💚 Salawat upon the Prophet ﷺ',
+      salawatPhrases[(i-1) % salawatPhrases.length],
+      'salawat', '/?tab=adhkar'
     )
   }
 
   S.set('zk:notif-scheduled', new Date().toDateString())
+
+  // ── Enhance with AI messages in background (non-blocking) ────────────────
+  setTimeout(async () => {
+    try {
+      for (const p of prayers) {
+        const aiMsg = await getNotifMsg(p.type, lang, name, streak)
+        if (aiMsg) PWA.scheduleNotif(p.id, msUntilHour(p.h), p.title, aiMsg, p.id, '/?tab=adhkar')
+      }
+    } catch {}
+  }, 2000)
 }
 
 // ── ICONS ─────────────────────────────────────────────────────────────────────
@@ -432,33 +443,49 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
   const fa=FOCUS_AREAS.find(f=>f.id===user.focusArea)||FOCUS_AREAS[0]
   const verse=DAILY_VERSES[new Date().getDay()%DAILY_VERSES.length]
 
-  // ── Daily Hadith from Dorar ──────────────────────────────────────────────
+  // ── Daily Hadith from Dorar — called client-side directly ───────────────
   const [dailyHadith,  setDailyHadith]  = useState(null)
   const [hadithCheckerOpen, setHadithCheckerOpen] = useState(false)
   const [verifyText,   setVerifyText]   = useState('')
   const [verifyResult, setVerifyResult] = useState(null)
   const [verifyLoading,setVerifyLoading]= useState(false)
 
+  const FOCUS_KW = {patience:'الصبر',discipline:'المداومة',gratitude:'الشكر',anger:'كظم الغيظ',mindfulness:'التفكر'}
+
+  async function fetchDorarClient(keyword, limit=3) {
+    try {
+      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(keyword)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      const data = await res.json()
+      return (data.ahadith||[]).slice(0,limit).map(h=>({
+        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
+        narrator: h.rawi||'',
+        grade:    h.shor||'',
+        source:   h.referance||h.takhrij||'',
+        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(keyword)}`,
+      })).filter(h=>h.text)
+    } catch { return [] }
+  }
+
   useEffect(() => {
     const cacheKey = `zk:dailyhadith-${user.focusArea}-${new Date().toDateString()}`
     const cached = S.get(cacheKey)
     if (cached) { setDailyHadith(cached); return }
-    fetch(`/api/hadith?focus=${user.focusArea||'patience'}`)
-      .then(r => r.json())
-      .then(d => {
-        const h = d.ahadith?.[0]
-        if (h) { setDailyHadith(h); S.set(cacheKey, h) }
-      }).catch(() => {})
+    const kw = FOCUS_KW[user.focusArea] || 'الإخلاص'
+    fetchDorarClient(kw, 3).then(list => {
+      if (list.length) {
+        const h = list[new Date().getDay() % list.length]
+        setDailyHadith(h); S.set(cacheKey, h)
+      }
+    })
   }, [user.focusArea])
 
   async function verifyHadith() {
     if (!verifyText.trim()) return
     setVerifyLoading(true); setVerifyResult(null)
-    try {
-      const res = await fetch(`/api/hadith?verify=${encodeURIComponent(verifyText)}`)
-      const data = await res.json()
-      setVerifyResult(data.ahadith || [])
-    } catch { setVerifyResult([]) }
+    const keywords = verifyText.trim().split(/\s+/).slice(0,5).join(' ')
+    const list = await fetchDorarClient(keywords, 5)
+    setVerifyResult(list)
     setVerifyLoading(false)
   }
 
@@ -1575,9 +1602,17 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
     if (!hadithQ.trim()) return
     setHadithLoad(true); setHadithRes(null)
     try {
-      const res = await fetch(`/api/hadith?q=${encodeURIComponent(hadithQ)}`)
+      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(hadithQ)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
       const data = await res.json()
-      setHadithRes(data.ahadith || [])
+      const list = (data.ahadith||[]).slice(0,5).map(h=>({
+        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
+        narrator: h.rawi||'',
+        grade:    h.shor||'',
+        source:   h.referance||h.takhrij||'',
+        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(hadithQ)}`,
+      })).filter(h=>h.text)
+      setHadithRes(list)
     } catch { setHadithRes([]) }
     setHadithLoad(false)
   }
@@ -1945,12 +1980,25 @@ function SupportModal({lang,onClose}) {
         ))}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}} dir={rtl?'rtl':'ltr'}>
-        {[5,10,20,50].map(a=>(
-          <button key={a} onClick={()=>setAmount(a)} style={{padding:'11px 0',borderRadius:6,border:`1px solid ${amount===a?'#d4a843':'#1a2e1f'}`,background:amount===a?'rgba(212,168,67,.1)':'#0c1a0f',color:amount===a?'#d4a843':'#7a9082',fontSize:14,fontFamily:'Georgia,serif',cursor:'pointer',transition:'all .2s'}}>
-            ${a}
-          </button>
-        ))}
+      {/* Free amount entry — no minimum */}
+      <div style={{marginBottom:16}} dir={rtl?'rtl':'ltr'}>
+        <div style={{color:'#7a9082',fontSize:10,letterSpacing:2,fontFamily:'system-ui',marginBottom:8,textAlign:'center'}}>{rtl?'المبلغ بالجنيه المصري':'AMOUNT IN EGP'}</div>
+        <div style={{display:'flex',alignItems:'center',background:'#0c1a0f',border:'1px solid rgba(212,168,67,.3)',borderRadius:8,overflow:'hidden'}}>
+          <span style={{color:'#d4a843',fontSize:16,fontFamily:'Georgia,serif',padding:'0 12px',flexShrink:0}}>ج.م</span>
+          <input type="number" min="1" step="1"
+            value={amount===0?'':amount}
+            onChange={e=>setAmount(Number(e.target.value)||0)}
+            placeholder={rtl?'أدخل المبلغ':'Enter amount'}
+            style={{flex:1,background:'transparent',border:'none',color:'#f0e8d8',padding:'13px 10px',fontSize:20,fontFamily:'Georgia,serif',outline:'none',textAlign:'center',direction:'ltr'}}
+          />
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
+          {[20,50,100,200].map(a=>(
+            <button key={a} onClick={()=>setAmount(a)} style={{padding:'8px 0',borderRadius:6,border:`1px solid ${amount===a?'#d4a843':'#1a2e1f'}`,background:amount===a?'rgba(212,168,67,.1)':'transparent',color:amount===a?'#d4a843':'#7a9082',fontSize:13,fontFamily:'system-ui',cursor:'pointer'}}>
+              {a}
+            </button>
+          ))}
+        </div>
       </div>
 
       {err&&<div style={{background:'rgba(181,69,27,.1)',border:'1px solid rgba(181,69,27,.25)',borderRadius:8,padding:'9px 12px',marginBottom:12,color:'#e07050',fontSize:13,fontFamily:'system-ui',textAlign:'center'}}>{err}</div>}
@@ -2009,12 +2057,32 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
   const [nawawiH,     setNawawiH]     = useState(null)
   const [nawawiLoad,  setNawawiLoad]  = useState(false)
 
+  const NAWAWI_TERMS = [
+    'إنما الأعمال بالنيات','الإسلام على خمس','الحلال بين والحرام بين',
+    'الدين النصيحة','دع ما يريبك','من حسن إسلام المرء ترك ما لا يعنيه',
+    'لا يؤمن أحدكم حتى يحب لأخيه','احفظ الله يحفظك','اتق الله حيثما كنت',
+    'لا تغضب','لا ضرر ولا ضرار','الطهور شطر الإيمان',
+    'من رأى منكم منكرا','إن الله كتب الإحسان','استفت قلبك',
+    'كن في الدنيا كأنك غريب','إن الله طيب لا يقبل إلا طيبا',
+    'اتق المحارم تكن أعبد الناس','ازهد في الدنيا يحبك الله',
+    'البر حسن الخلق',
+  ]
+
   async function loadNawawi(idx) {
     setNawawiLoad(true); setNawawiH(null)
     try {
-      const res = await fetch(`/api/hadith?nawawi=1&idx=${idx}`)
-      const d   = await res.json()
-      setNawawiH(d.ahadith?.[0] || null)
+      const term = NAWAWI_TERMS[idx % NAWAWI_TERMS.length]
+      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(term)}`
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      const data = await res.json()
+      const list = (data.ahadith||[]).map(h=>({
+        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
+        narrator: h.rawi||'',
+        grade:    h.shor||'',
+        source:   h.referance||h.takhrij||'',
+        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(term)}`,
+      })).filter(h=>h.text)
+      setNawawiH(list[0]||null)
     } catch {}
     setNawawiLoad(false)
   }
@@ -2223,20 +2291,132 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
         )}
       </Card>
 
-      {/* ── زر الدرر السنية الكامل ── */}
-      <a href="https://dorar.net" target="_blank" rel="noreferrer" style={{textDecoration:'none',display:'block',marginBottom:12}}>
-        <div style={{background:'linear-gradient(135deg,#0a1a0c,#0f1f12)',border:'1px solid rgba(45,155,111,.3)',borderRadius:14,padding:'16px 18px',display:'flex',alignItems:'center',gap:14,transition:'all .2s'}}>
-          <div style={{width:46,height:46,borderRadius:12,background:'rgba(45,155,111,.15)',border:'1px solid rgba(45,155,111,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🕌</div>
-          <div style={{flex:1}}>
-            <div style={{color:'#f0e8d8',fontSize:14,marginBottom:3}}>{rtl?'الدرر السنية — الموسوعة الحديثية':'Dorar.net — Hadith Encyclopedia'}</div>
-            <div style={{color:'#7a9082',fontSize:11,fontFamily:'system-ui',lineHeight:1.6}}>
-              {rtl?'مئات الآلاف من الأحاديث بأحكام العلماء · صحيح · ضعيف · موضوع':'Hundreds of thousands of hadiths with scholarly grades'}
-            </div>
-          </div>
-          <div style={{color:'#2d9b6f',fontSize:18,flexShrink:0}}>←</div>
-        </div>
-      </a>
+      {/* ── روابط الدرر السنية ── */}
+      <div style={{color:'#7a9082',fontSize:9,letterSpacing:3,fontFamily:'system-ui',marginBottom:10}}>
+        {rtl?'تفقّه في دينك — الدرر السنية':'ISLAMIC KNOWLEDGE — DORAR.NET'}
+      </div>
 
+      {[
+        { emoji:'📜', title:rtl?'الموسوعة الحديثية':'Hadith Encyclopedia',       sub:rtl?'مئات الآلاف من الأحاديث بأحكام العلماء':'Hundreds of thousands of authenticated hadiths', url:'https://dorar.net/hadith', color:'rgba(45,155,111,.25)' },
+        { emoji:'⚖️', title:rtl?'الموسوعة الفقهية':'Fiqh Encyclopedia',         sub:rtl?'المذاهب الأربعة — حنفي، مالكي، شافعي، حنبلي':'Four madhabs — Hanafi, Maliki, Shafi, Hanbali',   url:'https://dorar.net/fiqh',   color:'rgba(212,168,67,.2)' },
+        { emoji:'🌟', title:rtl?'موسوعة أصول الفقه':'Usul al-Fiqh Encyclopedia',  sub:rtl?'قواعد الاستنباط الفقهي وأدلة الأحكام':'Principles of Islamic jurisprudence',               url:'https://dorar.net/feqhia', color:'rgba(212,168,67,.15)' },
+        { emoji:'📖', title:rtl?'الموسوعة العقدية':'Aqidah Encyclopedia',         sub:rtl?'مسائل التوحيد والعقيدة على منهج أهل السنة':'Creed and monotheism — Ahl al-Sunnah',           url:'https://dorar.net/aqeeda', color:'rgba(139,92,246,.2)' },
+        { emoji:'✨', title:rtl?'موسوعة الأخلاق':'Akhlaq Encyclopedia',           sub:rtl?'التزكية وتهذيب النفس والأخلاق الإسلامية':'Purification of the soul and Islamic ethics',     url:'https://dorar.net/akhlaq', color:'rgba(45,155,111,.15)' },
+        { emoji:'🕌', title:rtl?'الدرر السنية — الرئيسية':'Dorar.net — Main',   sub:rtl?'البحث الشامل في جميع الموسوعات':'Search across all encyclopedias',                        url:'https://dorar.net',        color:'rgba(255,255,255,.07)' },
+      ].map(item => (
+        <a key={item.url} href={item.url} target="_blank" rel="noreferrer" style={{textDecoration:'none',display:'block',marginBottom:10}}>
+          <div style={{background:'linear-gradient(135deg,#0a1a0c,#0f1f12)',border:`1px solid ${item.color}`,borderRadius:12,padding:'14px 16px',display:'flex',alignItems:'center',gap:12,transition:'all .2s'}}>
+            <div style={{width:42,height:42,borderRadius:10,background:item.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{item.emoji}</div>
+            <div style={{flex:1}}>
+              <div style={{color:'#f0e8d8',fontSize:13,marginBottom:2}}>{item.title}</div>
+              <div style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui',lineHeight:1.5}}>{item.sub}</div>
+            </div>
+            <div style={{color:'#3a5045',fontSize:16,flexShrink:0}}>←</div>
+          </div>
+        </a>
+      ))}
+
+    </div>
+  )
+}
+
+
+// ── VIDEOS TAB — Dorar Safeer Videos ─────────────────────────────────────────
+function VideosTab({lang}) {
+  const rtl = lang === 'ar'
+  const DORAR_VIDEOS_URL = 'https://dorar.net/safeer/videos?category=11'
+
+  // Curated Islamic video categories from Dorar Safeer
+  const categories = [
+    { label: rtl?'الفقه الإسلامي':'Islamic Fiqh',        url:'https://dorar.net/safeer/videos?category=11', emoji:'⚖️' },
+    { label: rtl?'العقيدة':'Aqidah',                       url:'https://dorar.net/safeer/videos?category=1',  emoji:'🌟' },
+    { label: rtl?'التفسير':'Tafsir',                       url:'https://dorar.net/safeer/videos?category=3',  emoji:'📖' },
+    { label: rtl?'الحديث النبوي':'Hadith',                 url:'https://dorar.net/safeer/videos?category=2',  emoji:'📜' },
+    { label: rtl?'السيرة النبوية':'Seerah',                url:'https://dorar.net/safeer/videos?category=5',  emoji:'🕌' },
+    { label: rtl?'الأخلاق والتزكية':'Akhlaq & Tazkiyah',  url:'https://dorar.net/safeer/videos?category=8',  emoji:'✨' },
+  ]
+
+  const [selectedCat, setSelectedCat] = useState(DORAR_VIDEOS_URL)
+
+  const shareVideo = () => {
+    const text = rtl
+      ? `📹 تعلّم دينك مع الدرر السنية — فيديوهات إسلامية موثوقة
+${selectedCat}
+
+من تطبيق زكّاها 🌿 zakkaha.baytzaki.com`
+      : `📹 Learn your deen with Dorar Safeer — trusted Islamic videos
+${selectedCat}
+
+From Zakkaha app 🌿 zakkaha.baytzaki.com`
+    if (navigator.share) {
+      navigator.share({ title: rtl?'فيديوهات إسلامية — الدرر السنية':'Islamic Videos — Dorar', url: selectedCat, text }).catch(()=>{})
+    } else {
+      navigator.clipboard.writeText(text).catch(()=>{})
+    }
+  }
+
+  return (
+    <div dir={rtl?'rtl':'ltr'} style={{display:'flex',flexDirection:'column',height:'calc(100vh - 70px)'}}>
+      {/* Header */}
+      <div style={{background:'#07120a',borderBottom:'1px solid #1a2e1f',padding:'50px 16px 12px',flexShrink:0,position:'relative',overflow:'hidden'}}>
+        <GeomBg/>
+        <div style={{position:'relative'}}>
+          <div style={{color:'#d4a843',fontSize:10,letterSpacing:4,fontFamily:'system-ui',marginBottom:4}}>
+            {rtl?'تفقّه في دينك':'LEARN YOUR DEEN'}
+          </div>
+          <h2 style={{color:'#f0e8d8',fontSize:20,marginBottom:4}}>
+            {rtl?'فيديوهات الدرر السنية':'Dorar Safeer Videos'}
+          </h2>
+          <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui'}}>
+            {rtl?'علماء موثوقون · محتوى شرعي أصيل':'Trusted scholars · Authentic Islamic content'}
+          </div>
+        </div>
+      </div>
+
+      {/* Category pills */}
+      <div style={{flexShrink:0,padding:'10px 12px',background:'#0c1a0f',borderBottom:'1px solid #1a2e1f',display:'flex',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
+        {categories.map(c => (
+          <button key={c.url} onClick={()=>setSelectedCat(c.url)}
+            style={{flexShrink:0,padding:'7px 14px',borderRadius:20,border:`1px solid ${selectedCat===c.url?'rgba(212,168,67,.5)':'#1a2e1f'}`,background:selectedCat===c.url?'rgba(212,168,67,.12)':'transparent',color:selectedCat===c.url?'#d4a843':'#7a9082',fontSize:12,fontFamily:'system-ui',cursor:'pointer',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5,transition:'all .2s'}}>
+            <span>{c.emoji}</span> {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Action bar */}
+      <div style={{flexShrink:0,padding:'8px 12px',background:'#0a1a0c',borderBottom:'1px solid #1a2e1f',display:'flex',gap:8,alignItems:'center'}}>
+        <a href={selectedCat} target="_blank" rel="noreferrer"
+          style={{flex:1,background:'rgba(45,155,111,.12)',border:'1px solid rgba(45,155,111,.3)',color:'#2d9b6f',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',textDecoration:'none',display:'flex',alignItems:'center',gap:6}}>
+          <IcGlobe s={14}/> {rtl?'فتح في المتصفح':'Open in browser'}
+        </a>
+        <button onClick={shareVideo}
+          style={{background:'rgba(212,168,67,.1)',border:'1px solid rgba(212,168,67,.25)',color:'#d4a843',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+          <IcShare s={14}/> {rtl?'مشاركة':'Share'}
+        </button>
+      </div>
+
+      {/* Iframe embed */}
+      <div style={{flex:1,position:'relative',background:'#060e09'}}>
+        <iframe
+          key={selectedCat}
+          src={selectedCat}
+          title={rtl?'فيديوهات الدرر السنية':'Dorar Safeer Videos'}
+          style={{width:'100%',height:'100%',border:'none'}}
+          loading="lazy"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+        />
+      </div>
+
+      {/* Share CTA at bottom */}
+      <div style={{flexShrink:0,padding:'10px 12px',background:'#0c1a0f',borderTop:'1px solid #1a2e1f',textAlign:'center'}}>
+        <div style={{color:'#3a5045',fontSize:11,fontFamily:'system-ui',marginBottom:6}}>
+          {rtl?'محتوى من الدرر السنية — dorar.net':'Content from Dorar.net — Al-Durrar Al-Saniyyah'}
+        </div>
+        <button onClick={shareVideo}
+          style={{background:'rgba(45,155,111,.1)',border:'1px solid rgba(45,155,111,.22)',color:'#2d9b6f',borderRadius:8,padding:'9px 20px',fontSize:13,fontFamily:'system-ui',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8}}>
+          <IcShare s={15}/> {rtl?'شارك هذا المحتوى مع أصدقائك 💚':'Share this content with friends 💚'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -2294,12 +2474,10 @@ export default function Page() {
 
   // ── SCHEDULE NOTIFICATIONS when user grants permission ──
   useEffect(()=>{
-    if(notifPerm!=='granted') return
-    const lastScheduled=S.get('zk:notif-scheduled')
-    if(lastScheduled!==new Date().toDateString()){
-      scheduleAllNotifications(lang, user)
-    }
-  },[notifPerm,lang])
+    if(notifPerm!=='granted'||!user?.name) return
+    // Always reschedule on app load — timers are in-memory and reset on refresh
+    scheduleAllNotifications(lang, user)
+  },[notifPerm, lang, user?.name])
 
   // ── SHOW NOTIFICATION BANNER after onboarding ──
   useEffect(()=>{
@@ -2408,6 +2586,7 @@ export default function Page() {
     {id:'adhkar',   icon:<IcStar s={22}/>,  iconLg:<IcStar s={26}/>,  label:t(lang,'adhkar')},
     {id:'challenges',icon:<IcZap s={22}/>, iconLg:<IcZap s={26}/>,   label:t(lang,'challenges')},
     {id:'mentor',   icon:<IcMsg s={22}/>,   iconLg:<IcMsg s={26}/>,   label:t(lang,'mentor')},
+    {id:'videos',   icon:<span style={{fontSize:18}}>🎬</span>, iconLg:<span style={{fontSize:24}}>🎬</span>, label:rtl?'تفقّه':'Learn'},
     {id:'profile',  icon:<IcUser s={22}/>,  iconLg:<IcUser s={26}/>,  label:t(lang,'profile')},
   ]
 
@@ -2532,6 +2711,7 @@ export default function Page() {
         {tab==='mentor'     &&<MentorTab user={user} lang={lang} msgs={mentorMsgs} setMsgs={setMentorMsgs} loading={mentorLoading} setLoading={setMentorLoading} setMentorCount={setMentorCount} setUser={setUser} showNotif={showNotif}/>}
         {tab==='journal'    &&<div className="zu"><JournalTab lang={lang} journals={journals} view={journalView} setView={setJournalView} prompt={journalPrompt} setPrompt={setJournalPrompt} setJournals={setJournals} setUser={setUser} showNotif={showNotif}/></div>}
         {tab==='profile'    &&<div className="zu"><ProfileTab user={user} lang={lang} journals={journals} challenges={challenges} badges={badges} mentorCount={mentorCount} khatma={khatma} openSupport={()=>setShowSup(true)} openReferral={()=>setShowRef(true)} notifPerm={notifPerm} requestNotifs={requestNotifications} quranDL={quranDL} downloadQuran={downloadQuranOffline} hijriToday={hijriToday}/></div>}
+        {tab==='videos'    &&<div className="zu"><VideosTab lang={lang}/></div>}
       </div>
 
       {/* ── BOTTOM NAV (mobile) ── */}
