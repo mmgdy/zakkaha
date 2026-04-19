@@ -437,6 +437,35 @@ function Onboarding({lang,setLang,onComplete}) {
 }
 
 // ── HOME TAB ──────────────────────────────────────────────────────────────────
+
+// ── DORAR.NET JSONP helper ────────────────────────────────────────────────────
+// dorar.net blocks server-side fetches (403). Their API only works client-side
+// via JSONP. We inject a <script> tag to get the data from the browser.
+function fetchDorarJSONP(keyword, limit = 3) {
+  return new Promise((resolve) => {
+    if (!keyword || typeof window === 'undefined') { resolve([]); return }
+    const cbName = 'dorarCb_' + Date.now()
+    const script = document.createElement('script')
+    const cleanup = () => { try { document.head.removeChild(script) } catch {} delete window[cbName] }
+    const timer = setTimeout(() => { cleanup(); resolve([]) }, 7000)
+    window[cbName] = (data) => {
+      clearTimeout(timer); cleanup()
+      const raw = (data?.ahadith || []).slice(0, limit)
+      resolve(raw.map(h => ({
+        id:       h.id       || '',
+        text:     (h.th || h.matn || '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim(),
+        narrator: h.rawi     || '',
+        grade:    h.shor     || '',
+        source:   h.referance || h.takhrij || '',
+        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(keyword)}`,
+      })).filter(h => h.text.length > 15))
+    }
+    script.src = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(keyword)}&callback=${cbName}`
+    script.onerror = () => { clearTimeout(timer); cleanup(); resolve([]) }
+    document.head.appendChild(script)
+  })
+}
+
 function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckIn,setTab,setJournalView,setJournalPrompt,khatma,hijriToday}) {
   const lv=getLevelInfo(user.xp), rtl=lang==='ar'
   const xpPct=Math.min((user.xp/lv.next)*100,100)
@@ -452,27 +481,12 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
 
   const FOCUS_KW = {patience:'الصبر',discipline:'المداومة',gratitude:'الشكر',anger:'كظم الغيظ',mindfulness:'التفكر'}
 
-  async function fetchDorarClient(keyword, limit=3) {
-    try {
-      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(keyword)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      const data = await res.json()
-      return (data.ahadith||[]).slice(0,limit).map(h=>({
-        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
-        narrator: h.rawi||'',
-        grade:    h.shor||'',
-        source:   h.referance||h.takhrij||'',
-        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(keyword)}`,
-      })).filter(h=>h.text)
-    } catch { return [] }
-  }
-
   useEffect(() => {
     const cacheKey = `zk:dailyhadith-${user.focusArea}-${new Date().toDateString()}`
     const cached = S.get(cacheKey)
     if (cached) { setDailyHadith(cached); return }
     const kw = FOCUS_KW[user.focusArea] || 'الإخلاص'
-    fetchDorarClient(kw, 3).then(list => {
+    fetchDorarJSONP(kw, 3).then(list => {
       if (list.length) {
         const h = list[new Date().getDay() % list.length]
         setDailyHadith(h); S.set(cacheKey, h)
@@ -484,7 +498,7 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
     if (!verifyText.trim()) return
     setVerifyLoading(true); setVerifyResult(null)
     const keywords = verifyText.trim().split(/\s+/).slice(0,5).join(' ')
-    const list = await fetchDorarClient(keywords, 5)
+    const list = await fetchDorarJSONP(keywords, 5)
     setVerifyResult(list)
     setVerifyLoading(false)
   }
@@ -1601,19 +1615,8 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
   async function searchHadith() {
     if (!hadithQ.trim()) return
     setHadithLoad(true); setHadithRes(null)
-    try {
-      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(hadithQ)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      const data = await res.json()
-      const list = (data.ahadith||[]).slice(0,5).map(h=>({
-        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
-        narrator: h.rawi||'',
-        grade:    h.shor||'',
-        source:   h.referance||h.takhrij||'',
-        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(hadithQ)}`,
-      })).filter(h=>h.text)
-      setHadithRes(list)
-    } catch { setHadithRes([]) }
+    const results = await fetchDorarJSONP(hadithQ, 5)
+    setHadithRes(results)
     setHadithLoad(false)
   }
 
@@ -2068,22 +2071,11 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
     'البر حسن الخلق',
   ]
 
-  async function loadNawawi(idx) {
+    async function loadNawawi(idx) {
     setNawawiLoad(true); setNawawiH(null)
-    try {
-      const term = NAWAWI_TERMS[idx % NAWAWI_TERMS.length]
-      const url = `https://dorar.net/dorar_api.json?skey=${encodeURIComponent(term)}`
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      const data = await res.json()
-      const list = (data.ahadith||[]).map(h=>({
-        text:     (h.th||h.matn||'').replace(/<[^>]+>/g,'').trim(),
-        narrator: h.rawi||'',
-        grade:    h.shor||'',
-        source:   h.referance||h.takhrij||'',
-        dorarUrl: `https://dorar.net/hadith/search?skey=${encodeURIComponent(term)}`,
-      })).filter(h=>h.text)
-      setNawawiH(list[0]||null)
-    } catch {}
+    const term    = NAWAWI_TERMS[idx % NAWAWI_TERMS.length]
+    const results = await fetchDorarJSONP(term, 1)
+    setNawawiH(results[0] || null)
     setNawawiLoad(false)
   }
 
@@ -2203,6 +2195,29 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
           {notifPerm==='denied'&&<span style={{color:'#e07050',fontSize:18,flexShrink:0}}>✗</span>}
         </div>
       </Card>
+
+      {/* Test notification button */}
+      {notifPerm==='granted'&&(
+        <Card style={{marginBottom:12,border:'1px solid rgba(45,155,111,.15)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <span style={{fontSize:20}}>🧪</span>
+            <div style={{flex:1}}>
+              <div style={{color:'#f0e8d8',fontSize:13,marginBottom:1}}>{rtl?'اختبار الإشعارات':'Test Notifications'}</div>
+              <div style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>{rtl?'اضغط لاستقبال إشعار فوري':'Tap to receive an immediate notification'}</div>
+            </div>
+            <button onClick={()=>{
+              if(Notification.permission==='granted'){
+                new Notification(rtl?'💚 الصلاة على النبي ﷺ':'💚 Test Notification',{
+                  body:rtl?'اللهم صلِّ على محمد وعلى آل محمد — الإشعارات تعمل ✓':'Notifications are working correctly ✓',
+                  icon:'/icons/icon-192.png',tag:'test'
+                })
+              }
+            }} style={{background:'#2d9b6f',color:'#fff',border:'none',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',cursor:'pointer',fontWeight:600,flexShrink:0}}>
+              {rtl?'اختبر الآن':'Test Now'}
+            </button>
+          </div>
+        </Card>
+      )}
 
       {/* ── OFFLINE QURAN DOWNLOAD ── */}
       <Card style={{marginBottom:12,border:`1px solid ${quranDL==='complete'?'rgba(45,155,111,.25)':'rgba(45,155,111,.12)'}`}}>
@@ -2324,102 +2339,98 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
 // ── VIDEOS TAB — Dorar Safeer Videos ─────────────────────────────────────────
 function VideosTab({lang}) {
   const rtl = lang === 'ar'
-  const DORAR_VIDEOS_URL = 'https://dorar.net/safeer/videos?category=11'
 
-  // Curated Islamic video categories from Dorar Safeer
   const categories = [
-    { label: rtl?'الفقه الإسلامي':'Islamic Fiqh',        url:'https://dorar.net/safeer/videos?category=11', emoji:'⚖️' },
-    { label: rtl?'العقيدة':'Aqidah',                       url:'https://dorar.net/safeer/videos?category=1',  emoji:'🌟' },
-    { label: rtl?'التفسير':'Tafsir',                       url:'https://dorar.net/safeer/videos?category=3',  emoji:'📖' },
-    { label: rtl?'الحديث النبوي':'Hadith',                 url:'https://dorar.net/safeer/videos?category=2',  emoji:'📜' },
-    { label: rtl?'السيرة النبوية':'Seerah',                url:'https://dorar.net/safeer/videos?category=5',  emoji:'🕌' },
-    { label: rtl?'الأخلاق والتزكية':'Akhlaq & Tazkiyah',  url:'https://dorar.net/safeer/videos?category=8',  emoji:'✨' },
+    { label:rtl?'الفقه الإسلامي':'Islamic Fiqh',    url:'https://dorar.net/safeer/videos?category=11', emoji:'⚖️', color:'rgba(212,168,67,.15)' },
+    { label:rtl?'العقيدة':'Aqidah',                  url:'https://dorar.net/safeer/videos?category=1',  emoji:'🌟', color:'rgba(139,92,246,.15)'  },
+    { label:rtl?'التفسير':'Tafsir',                  url:'https://dorar.net/safeer/videos?category=3',  emoji:'📖', color:'rgba(45,155,111,.15)'   },
+    { label:rtl?'الحديث النبوي':'Hadith',            url:'https://dorar.net/safeer/videos?category=2',  emoji:'📜', color:'rgba(212,168,67,.12)'   },
+    { label:rtl?'السيرة النبوية':'Seerah',           url:'https://dorar.net/safeer/videos?category=5',  emoji:'🕌', color:'rgba(45,155,111,.12)'   },
+    { label:rtl?'الأخلاق والتزكية':'Akhlaq',         url:'https://dorar.net/safeer/videos?category=8',  emoji:'✨', color:'rgba(212,168,67,.1)'    },
+    { label:rtl?'فقه الأسرة':'Family Fiqh',          url:'https://dorar.net/safeer/videos?category=12', emoji:'🏡', color:'rgba(45,155,111,.1)'    },
+    { label:rtl?'الدعوة والإرشاد':'Dawah',           url:'https://dorar.net/safeer/videos?category=6',  emoji:'📣', color:'rgba(139,92,246,.12)'   },
   ]
 
-  const [selectedCat, setSelectedCat] = useState(DORAR_VIDEOS_URL)
+  const [selected, setSelected] = useState(categories[0])
 
-  const shareVideo = () => {
+  function share(cat) {
     const text = rtl
-      ? `📹 تعلّم دينك مع الدرر السنية — فيديوهات إسلامية موثوقة
-${selectedCat}
+      ? `🎬 ${cat.label} — فيديوهات إسلامية من الدرر السنية
+${cat.url}
 
-من تطبيق زكّاها 🌿 zakkaha.baytzaki.com`
-      : `📹 Learn your deen with Dorar Safeer — trusted Islamic videos
-${selectedCat}
+من زكّاها 🌿 zakkaha.baytzaki.com`
+      : `🎬 ${cat.label} — Islamic videos from Dorar.net
+${cat.url}
 
-From Zakkaha app 🌿 zakkaha.baytzaki.com`
-    if (navigator.share) {
-      navigator.share({ title: rtl?'فيديوهات إسلامية — الدرر السنية':'Islamic Videos — Dorar', url: selectedCat, text }).catch(()=>{})
-    } else {
-      navigator.clipboard.writeText(text).catch(()=>{})
-    }
+From Zakkaha 🌿 zakkaha.baytzaki.com`
+    if (navigator.share) navigator.share({title:cat.label, url:cat.url, text}).catch(()=>{})
+    else navigator.clipboard?.writeText(text).catch(()=>{})
   }
 
   return (
-    <div dir={rtl?'rtl':'ltr'} style={{display:'flex',flexDirection:'column',height:'calc(100vh - 70px)'}}>
+    <div dir={rtl?'rtl':'ltr'} className="zk-page" style={{paddingTop:52}}>
       {/* Header */}
-      <div style={{background:'#07120a',borderBottom:'1px solid #1a2e1f',padding:'50px 16px 12px',flexShrink:0,position:'relative',overflow:'hidden'}}>
-        <GeomBg/>
-        <div style={{position:'relative'}}>
-          <div style={{color:'#d4a843',fontSize:10,letterSpacing:4,fontFamily:'system-ui',marginBottom:4}}>
-            {rtl?'تفقّه في دينك':'LEARN YOUR DEEN'}
-          </div>
-          <h2 style={{color:'#f0e8d8',fontSize:20,marginBottom:4}}>
-            {rtl?'فيديوهات الدرر السنية':'Dorar Safeer Videos'}
-          </h2>
-          <div style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui'}}>
-            {rtl?'علماء موثوقون · محتوى شرعي أصيل':'Trusted scholars · Authentic Islamic content'}
-          </div>
-        </div>
+      <div style={{color:'#d4a843',fontSize:10,letterSpacing:4,fontFamily:'system-ui',marginBottom:4}}>
+        {rtl?'تفقّه في دينك':'LEARN YOUR DEEN'}
       </div>
+      <h2 style={{color:'#f0e8d8',fontSize:22,marginBottom:6}}>{rtl?'فيديوهات الدرر السنية':'Dorar Safeer Videos'}</h2>
+      <p style={{color:'#7a9082',fontSize:12,fontFamily:'system-ui',lineHeight:1.6,marginBottom:18}}>
+        {rtl
+          ?'علماء موثوقون · محتوى شرعي أصيل من الدرر السنية · اضغط على أي فئة لفتحها'
+          :'Trusted scholars · Authentic Islamic content from Dorar.net · Tap any category to open it'}
+      </p>
 
-      {/* Category pills */}
-      <div style={{flexShrink:0,padding:'10px 12px',background:'#0c1a0f',borderBottom:'1px solid #1a2e1f',display:'flex',gap:8,overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-        {categories.map(c => (
-          <button key={c.url} onClick={()=>setSelectedCat(c.url)}
-            style={{flexShrink:0,padding:'7px 14px',borderRadius:20,border:`1px solid ${selectedCat===c.url?'rgba(212,168,67,.5)':'#1a2e1f'}`,background:selectedCat===c.url?'rgba(212,168,67,.12)':'transparent',color:selectedCat===c.url?'#d4a843':'#7a9082',fontSize:12,fontFamily:'system-ui',cursor:'pointer',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5,transition:'all .2s'}}>
-            <span>{c.emoji}</span> {c.label}
-          </button>
+      {/* Category cards — open directly in browser (no iframe — dorar.net blocks embedding) */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:20}} className="g2">
+        {categories.map(cat => (
+          <a key={cat.url} href={cat.url} target="_blank" rel="noreferrer"
+            style={{textDecoration:'none',display:'block'}}>
+            <div style={{background:`linear-gradient(135deg,#0a1a0c,#0f1f12)`,border:`1px solid ${cat.color}`,borderRadius:14,padding:'18px 14px',textAlign:'center',transition:'all .2s',cursor:'pointer',minHeight:100,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8}}>
+              <div style={{fontSize:28}}>{cat.emoji}</div>
+              <div style={{color:'#f0e8d8',fontSize:13,fontFamily:'system-ui',fontWeight:600,lineHeight:1.3}}>{cat.label}</div>
+              <div style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui',marginTop:2}}>
+                {rtl?'اضغط للمشاهدة ←':'Tap to watch →'}
+              </div>
+            </div>
+          </a>
         ))}
       </div>
 
-      {/* Action bar */}
-      <div style={{flexShrink:0,padding:'8px 12px',background:'#0a1a0c',borderBottom:'1px solid #1a2e1f',display:'flex',gap:8,alignItems:'center'}}>
-        <a href={selectedCat} target="_blank" rel="noreferrer"
-          style={{flex:1,background:'rgba(45,155,111,.12)',border:'1px solid rgba(45,155,111,.3)',color:'#2d9b6f',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',textDecoration:'none',display:'flex',alignItems:'center',gap:6}}>
-          <IcGlobe s={14}/> {rtl?'فتح في المتصفح':'Open in browser'}
-        </a>
-        <button onClick={shareVideo}
-          style={{background:'rgba(212,168,67,.1)',border:'1px solid rgba(212,168,67,.25)',color:'#d4a843',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-          <IcShare s={14}/> {rtl?'مشاركة':'Share'}
-        </button>
+      {/* Share section */}
+      <div style={{color:'#7a9082',fontSize:9,letterSpacing:3,fontFamily:'system-ui',marginBottom:12}}>
+        {rtl?'شارك المحتوى':'SHARE CONTENT'}
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+        {categories.slice(0,4).map(cat => (
+          <div key={cat.url} style={{display:'flex',alignItems:'center',gap:10,background:'#0c1a0f',border:`1px solid ${cat.color}`,borderRadius:10,padding:'11px 14px'}}>
+            <span style={{fontSize:20,flexShrink:0}}>{cat.emoji}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{color:'#f0e8d8',fontSize:13}}>{cat.label}</div>
+              <div style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cat.url}</div>
+            </div>
+            <button onClick={()=>share(cat)}
+              style={{background:'rgba(212,168,67,.1)',border:'1px solid rgba(212,168,67,.2)',color:'#d4a843',borderRadius:7,padding:'7px 12px',fontSize:11,fontFamily:'system-ui',cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',gap:5}}>
+              <IcShare s={13}/>{rtl?'شارك':'Share'}
+            </button>
+          </div>
+        ))}
       </div>
 
-      {/* Iframe embed */}
-      <div style={{flex:1,position:'relative',background:'#060e09'}}>
-        <iframe
-          key={selectedCat}
-          src={selectedCat}
-          title={rtl?'فيديوهات الدرر السنية':'Dorar Safeer Videos'}
-          style={{width:'100%',height:'100%',border:'none'}}
-          loading="lazy"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
-        />
-      </div>
-
-      {/* Share CTA at bottom */}
-      <div style={{flexShrink:0,padding:'10px 12px',background:'#0c1a0f',borderTop:'1px solid #1a2e1f',textAlign:'center'}}>
-        <div style={{color:'#3a5045',fontSize:11,fontFamily:'system-ui',marginBottom:6}}>
-          {rtl?'محتوى من الدرر السنية — dorar.net':'Content from Dorar.net — Al-Durrar Al-Saniyyah'}
+      {/* Dorar link */}
+      <a href="https://dorar.net/safeer/videos" target="_blank" rel="noreferrer" style={{textDecoration:'none',display:'block'}}>
+        <div style={{background:'linear-gradient(135deg,#0a1a0c,#0f1f12)',border:'1px solid rgba(45,155,111,.3)',borderRadius:14,padding:'16px 18px',display:'flex',alignItems:'center',gap:14}}>
+          <div style={{width:44,height:44,borderRadius:12,background:'rgba(45,155,111,.15)',border:'1px solid rgba(45,155,111,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>🎬</div>
+          <div style={{flex:1}}>
+            <div style={{color:'#f0e8d8',fontSize:13,marginBottom:2}}>{rtl?'كل الفيديوهات — الدرر السنية':'All Videos — Dorar Safeer'}</div>
+            <div style={{color:'#7a9082',fontSize:11,fontFamily:'system-ui'}}>{rtl?'موسوعة فيديوهات إسلامية شاملة':'Comprehensive Islamic video encyclopedia'}</div>
+          </div>
+          <div style={{color:'#2d9b6f',fontSize:18,flexShrink:0}}>←</div>
         </div>
-        <button onClick={shareVideo}
-          style={{background:'rgba(45,155,111,.1)',border:'1px solid rgba(45,155,111,.22)',color:'#2d9b6f',borderRadius:8,padding:'9px 20px',fontSize:13,fontFamily:'system-ui',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8}}>
-          <IcShare s={15}/> {rtl?'شارك هذا المحتوى مع أصدقائك 💚':'Share this content with friends 💚'}
-        </button>
-      </div>
+      </a>
     </div>
   )
 }
+
 
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function Page() {
