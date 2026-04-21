@@ -8,7 +8,7 @@ input,textarea,button{font-family:inherit}
 
 .zk-shell{background:#060e09;min-height:100vh;width:100%;display:flex;flex-direction:column;font-family:Georgia,serif}
 .zk-content{flex:1;overflow-y:auto;overflow-x:hidden;padding-bottom:72px}
-.zk-bottom-nav{position:fixed;bottom:0;left:0;right:0;height:70px;background:rgba(6,14,9,.97);backdrop-filter:blur(20px);border-top:1px solid #1a2e1f;display:flex;align-items:center;justify-content:space-around;z-index:100}
+.zk-bottom-nav{position:fixed;bottom:0;left:0;right:0;height:80px;background:rgba(6,14,9,.97);backdrop-filter:blur(20px);border-top:1px solid #1a2e1f;display:flex;align-items:center;justify-content:space-around;z-index:100}
 .zk-sidebar{display:none}
 .zk-page{width:100%;max-width:860px;margin:0 auto;padding:0 16px 28px}
 

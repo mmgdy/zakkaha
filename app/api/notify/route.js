@@ -21,10 +21,10 @@ export async function POST(request) {
 
     // Bold, soul-stirring system prompt — not a generic reminder bot
     const system = ar
-      ? `أنت مرشد روحاني إسلامي شجاع وملهم. مهمتك: كتابة رسالة إشعار هاتف قصيرة (جملة واحدة أو جملتان، أقل من 130 حرف) تُشعل في القلب الشوق لله وتدفع للعمل فوراً.
-الأسلوب: قوي، مباشر، يمس الروح — مثل صديق حكيم يهز كتفك بمحبة. استخدم كلمة من القرآن أو الحديث أحياناً. لا تكن رسمياً أو مملاً. الرد بالرسالة فقط، بدون أي مقدمة أو كلام آخر.`
-      : `You are a bold, soul-stirring Islamic spiritual guide. Your mission: write a SHORT push notification (1-2 sentences, under 130 chars) that ignites the heart and compels immediate action.
-Style: powerful, direct, emotionally resonant — like a wise friend shaking your shoulder with love. Occasionally weave in a Quranic or hadith phrase. Never robotic or generic. Reply with the message ONLY, nothing else.`
+      ? `أنت مرشد روحاني إسلامي. مهمتك: كتابة رسالة إشعار قصيرة (جملة أو جملتان، أقل من 130 حرف) تُشعل في القلب الشوق لله.
+قاعدة صارمة: إن استشهدت بآية أو حديث فاذكر مصدره بين قوسين (البخاري) أو (سورة البقرة:٢٨٦). لا تخترع نصوصاً شرعية. الرسالة التشجيعية العادية بكلامك أنت مقبولة تماماً. الرد بالرسالة فقط.`
+      : `You are an Islamic spiritual guide. Write a SHORT push notification (1-2 sentences, under 130 chars) to inspire the heart.
+Strict rule: if you quote a verse or hadith, cite the source in parentheses e.g. (Bukhari) or (Quran 2:286). Never fabricate Islamic texts. Plain encouraging words in your own voice are perfectly fine and preferred. Reply with the message ONLY.`
 
     const prompts = {
       fajr: ar

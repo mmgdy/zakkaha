@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { t } from '../lib/i18n'
 import { FOCUS_AREAS, CHALLENGES_DATA, BADGES_DATA, JOURNAL_PROMPTS, getLevelInfo, todayStr, yesterdayStr, fmtDate, SITE_URL } from '../lib/constants'
 import { ADHKAR_CATEGORIES, ADHKAR, DAILY_VERSES } from '../lib/adhkar'
@@ -753,6 +753,158 @@ function HomeTab({user,lang,logs,journals,challenges,badges,checkInDone,doCheckI
   )
 }
 
+
+// ── AYAH ROW ─────────────────────────────────────────────────────────────────
+// Supports: normal | learn mode (tafsir) | kids mode (interactive)
+const AyahRow = React.forwardRef(function AyahRow(
+  { a, surahN, learnMode, kidsMode, lang, isLastRead, onRead }, ref
+) {
+  const [tafsir,    setTafsir]    = useState(null)
+  const [tafsirLoad,setTafsirLoad]= useState(false)
+  const [translation, setTrans]   = useState(null)
+  const [transLoad,   setTransLoad] = useState(false)
+  const [kidsRead,  setKidsRead]  = useState(false)
+  const [kidsAudio, setKidsAudio] = useState(null)
+  const rtl = lang === 'ar'
+
+  // ── Tafsir (learn mode) ────────────────────────────────────────────────
+  async function fetchTafsir() {
+    if (tafsir !== null || tafsirLoad) return
+    setTafsirLoad(true)
+    try {
+      const key = rtl ? 'ar.jalalayn' : 'en.sahih'
+      const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahN}:${a.n}/${key}`)
+      const d   = await res.json()
+      setTafsir(d?.data?.text || '')
+    } catch { setTafsir('') }
+    setTafsirLoad(false)
+  }
+  useEffect(() => { if (learnMode) fetchTafsir() }, [learnMode])
+
+  // ── Simple translation (kids mode) ────────────────────────────────────
+  async function fetchTranslation() {
+    if (translation !== null || transLoad) return
+    setTransLoad(true)
+    try {
+      const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahN}:${a.n}/en.asad`)
+      const d   = await res.json()
+      setTrans(d?.data?.text || '')
+    } catch { setTrans('') }
+    setTransLoad(false)
+  }
+  useEffect(() => { if (kidsMode) fetchTranslation() }, [kidsMode])
+
+  // ── Kids audio (repeat this ayah) — uses ayah-level everyayah CDN ─────
+  function playAyahAudio() {
+    const padS = String(surahN).padStart(3, '0')
+    const padA = String(a.n).padStart(3, '0')
+    const url = `https://everyayah.com/data/Yasser_Ad-Dossary_128kbps/${padS}${padA}.mp3`
+    if (kidsAudio) { kidsAudio.pause(); kidsAudio.currentTime = 0 }
+    const audio = new Audio(url)
+    setKidsAudio(audio)
+    audio.play().catch(() => {})
+  }
+
+  // ── Kids mode: mark ayah read ─────────────────────────────────────────
+  function markKidsRead() {
+    setKidsRead(true)
+    onRead()
+  }
+
+  // ── KIDS MODE RENDER ──────────────────────────────────────────────────
+  if (kidsMode) {
+    return (
+      <div ref={ref} style={{
+        marginBottom: 20, borderRadius: 16,
+        background: kidsRead ? 'rgba(45,155,111,.12)' : isLastRead ? 'rgba(212,168,67,.1)' : 'rgba(15,31,18,.6)',
+        border: `2px solid ${kidsRead ? 'rgba(45,155,111,.4)' : isLastRead ? 'rgba(212,168,67,.4)' : '#1a2e1f'}`,
+        padding: '18px 16px', transition: 'all .3s',
+        boxShadow: isLastRead ? '0 0 20px rgba(212,168,67,.12)' : 'none',
+      }}>
+        {/* Ayah number + bookmark */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(212,168,67,.15)', border: '2px solid rgba(212,168,67,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d4a843', fontSize: 14, fontWeight: 700 }}>{a.n}</div>
+            {isLastRead && <span style={{ background: 'rgba(212,168,67,.2)', color: '#d4a843', fontSize: 10, borderRadius: 6, padding: '2px 8px', fontFamily: 'system-ui' }}>📍 {rtl ? 'توقفت هنا' : 'You stopped here'}</span>}
+          </div>
+          {kidsRead && <span style={{ fontSize: 22 }}>⭐</span>}
+        </div>
+
+        {/* Big Arabic text */}
+        <div style={{ fontSize: 30, lineHeight: 2.4, color: '#f0e8d8', direction: 'rtl', textAlign: 'right', fontFamily: "'Amiri', Georgia, serif", marginBottom: 14 }}>
+          {a.text}
+        </div>
+
+        {/* Translation */}
+        {transLoad && <div style={{ color: '#3a5045', fontSize: 12, fontFamily: 'system-ui', marginBottom: 10 }}>⏳</div>}
+        {!transLoad && translation && (
+          <div style={{ color: '#7a9082', fontSize: 14, lineHeight: 1.8, fontFamily: 'system-ui', direction: 'ltr', textAlign: 'left', marginBottom: 14, fontStyle: 'italic', paddingRight: 8, borderRight: '3px solid rgba(45,155,111,.3)' }}>
+            "{translation}"
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={playAyahAudio}
+            style={{ flex: 1, background: 'rgba(212,168,67,.12)', border: '1px solid rgba(212,168,67,.3)', color: '#d4a843', borderRadius: 10, padding: '11px 0', fontSize: 13, fontFamily: 'system-ui', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}>
+            🔊 {rtl ? 'استمع' : 'Listen'}
+          </button>
+          <button onClick={markKidsRead} disabled={kidsRead}
+            style={{ flex: 1, background: kidsRead ? 'rgba(45,155,111,.15)' : '#2d9b6f', border: 'none', color: kidsRead ? '#2d9b6f' : '#fff', borderRadius: 10, padding: '11px 0', fontSize: 13, fontFamily: 'system-ui', cursor: kidsRead ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600, transition: 'all .2s' }}>
+            {kidsRead ? '⭐ ' + (rtl ? 'أحسنت!' : 'Done!') : '✓ ' + (rtl ? 'حفظت الآية' : 'Got it!')}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── NORMAL / LEARN MODE RENDER ────────────────────────────────────────
+  return (
+    <div ref={ref} style={{
+      marginBottom: 18, paddingBottom: 18,
+      borderBottom: '1px solid rgba(26,46,31,.5)',
+      background: isLastRead ? 'rgba(212,168,67,.05)' : 'transparent',
+      borderRadius: isLastRead ? 8 : 0,
+      padding: isLastRead ? '12px 10px' : undefined,
+      border: isLastRead ? '1px solid rgba(212,168,67,.2)' : undefined,
+      margin: isLastRead ? '0 0 18px' : undefined,
+    }}>
+      {/* Bookmark badge */}
+      {isLastRead && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <span style={{ fontSize: 14 }}>📍</span>
+          <span style={{ color: '#d4a843', fontSize: 10, letterSpacing: 2, fontFamily: 'system-ui' }}>{rtl ? 'توقفت هنا' : 'YOU STOPPED HERE'}</span>
+        </div>
+      )}
+
+      {/* Ayah text */}
+      <div style={{ fontSize: 23, lineHeight: 2.3, color: '#f0e8d8', direction: 'rtl', textAlign: 'right', fontFamily: "'Amiri', 'Scheherazade New', Georgia, serif" }}
+        onClick={onRead}>
+        {a.text}
+        {' '}
+        <span style={{ display: 'inline-block', width: 32, height: 32, borderRadius: '50%', border: '1px solid rgba(212,168,67,.3)', textAlign: 'center', lineHeight: '30px', color: '#d4a843', fontSize: 12, fontFamily: 'system-ui', verticalAlign: 'middle', flexShrink: 0, cursor: 'pointer' }}>
+          {a.n}
+        </span>
+      </div>
+
+      {/* Learn mode: tafsir */}
+      {learnMode && (
+        <div style={{ marginTop: 10, background: 'rgba(45,155,111,.05)', border: '1px solid rgba(45,155,111,.15)', borderRadius: 8, padding: '10px 12px' }}>
+          <div style={{ color: '#2d9b6f', fontSize: 9, letterSpacing: 2, fontFamily: 'system-ui', marginBottom: 6 }}>
+            📚 {rtl ? 'تفسير الجلالين' : 'SAHEEH INTERNATIONAL'}
+          </div>
+          {tafsirLoad && <div style={{ color: '#3a5045', fontSize: 12, fontFamily: 'system-ui' }}>{rtl ? 'جارٍ التحميل...' : 'Loading...'}</div>}
+          {!tafsirLoad && tafsir && (
+            <div style={{ color: '#c8dfc8', fontSize: 14, lineHeight: 1.9, fontFamily: rtl ? "'Amiri', Georgia, serif" : 'system-ui', direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left' }}>
+              {tafsir}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})
+
 // ── QURAN TAB — Full Reader + Surah Khatma ──────────────────────────────────
 function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const rtl = lang === 'ar'
@@ -768,6 +920,21 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const [audioPos,   setAudioPos]    = useState(() => S.get('zk:audiopos') || null)
   const [showKhatmaPrompt, setShowKhatmaPrompt] = useState(false)
 
+  // ── Reciter + modes ──────────────────────────────────────────────────────
+  const [reciter,    setReciter]     = useState(() => S.get('zk:reciter') || 'dosari')
+  const [learnMode,  setLearnMode]   = useState(false)
+  const [kidsMode,   setKidsMode]    = useState(false)
+  const [lastAyah,   setLastAyah]    = useState(() => S.get('zk:lastayah') || {})
+  const ayahRefs   = useRef({})  // ref map: ayahNum → DOM node for scroll-to
+
+  const RECITERS = {
+    dosari:   { label: 'ياسر الدوسري',    labelEn: 'Yasser Al-Dosari',  apiPath: 'dosari'   },
+    minshawi: { label: 'محمد صديق المنشاوي', labelEn: 'Al-Minshawi',    apiPath: 'minshawi' },
+  }
+
+  // Persist reciter choice
+  useEffect(() => { S.set('zk:reciter', reciter) }, [reciter])
+
   // ── Audio ─────────────────────────────────────────────────────────────────
   const audioRef      = useRef(null)
   const seekOnLoadRef = useRef(null)  // seconds to seek once audio canplay fires
@@ -782,14 +949,14 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const khatmaPct = Math.round((completedSurahs.length / 114) * 100)
   const isKhatmaComplete = completedSurahs.length >= 114
 
-  // ── Persist last read ─────────────────────────────────────────────────────
+  // ── Persist last read + last ayah ────────────────────────────────────────
   useEffect(() => { if (lastRead) S.set('zk:lastread', lastRead) }, [lastRead])
+  useEffect(() => { S.set('zk:lastayah', lastAyah) }, [lastAyah])
 
   // ── Load surah text ───────────────────────────────────────────────────────
   useEffect(() => {
     if (view !== 'reader' || !surah) return
-    setLoadText(true); setTextErr(false); setAyahs([])
-    // Fetch via our server proxy (avoids CORS)
+    setLoadText(true); setTextErr(false); setAyahs([]); ayahRefs.current = {}
     fetch(`/api/quran/${surah.n}`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(d => {
@@ -799,6 +966,18 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
       })
       .catch(err => { console.error('[Quran text]', err); setTextErr(true); setLoadText(false) })
   }, [view, surah?.n])
+
+  // ── Scroll to last read ayah after text loads ─────────────────────────────
+  useEffect(() => {
+    if (!ayahs.length || !surah) return
+    const saved = lastAyah[surah.n]
+    if (saved && saved > 1) {
+      setTimeout(() => {
+        const node = ayahRefs.current[saved]
+        if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 400)
+    }
+  }, [ayahs])
 
   // ── Audio event wiring ────────────────────────────────────────────────────
   useEffect(() => {
@@ -882,7 +1061,7 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
       if (!a.src || audioErr) {
         a.dataset.triedBackup = ''
         setAudioErr(false)
-        a.src = `/api/audio/${surah.n}`
+        a.src = `/api/audio/${surah.n}?reciter=${reciter}`
         a.load()
       }
       setBuffering(true)
@@ -988,13 +1167,30 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
 
             {/* ── Audio player ── */}
             <div style={{ background: 'rgba(212,168,67,.06)', border: '1px solid rgba(212,168,67,.15)', borderRadius: 10, padding: '11px 14px', direction: 'ltr' }}>
-              {/* Sheikh label */}
-              <div style={{ color: '#7a9082', fontSize: 10, letterSpacing: 2, fontFamily: 'system-ui', marginBottom: 8, textAlign: 'center' }}>
-                🎙️ Sheikh Yasser Al-Dosari
-                {buffering && !audioErr && <span style={{ color: '#d4a843', marginLeft: 8 }}>● buffering...</span>}
-                {audioErr && <span style={{ color: '#e07050', marginLeft: 8 }}>⚠ {rtl ? 'الصوت غير متاح' : 'audio unavailable'}</span>}
+              {/* Reciter switcher + learn mode */}
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                <div style={{display:'flex',gap:5}}>
+                  {Object.entries(RECITERS).map(([key,r])=>(
+                    <button key={key} onClick={()=>{setReciter(key);const a=audioRef.current;if(a){a.pause();a.src='';setPlaying(false);setProgress(0);setDuration(0);setAudioErr(false)}}}
+                      style={{background:reciter===key?'rgba(212,168,67,.15)':'transparent',border:`1px solid ${reciter===key?'rgba(212,168,67,.4)':'#1a2e1f'}`,color:reciter===key?'#d4a843':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
+                      🎙️ {rtl?r.label:r.labelEn}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={()=>setLearnMode(p=>!p)}
+                  style={{background:learnMode?'rgba(45,155,111,.15)':'transparent',border:`1px solid ${learnMode?'rgba(45,155,111,.4)':'#1a2e1f'}`,color:learnMode?'#2d9b6f':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
+                  📚 {rtl?'التعلم':'Learn'}
+                </button>
+                <button onClick={()=>setKidsMode(p=>!p)}
+                  style={{background:kidsMode?'rgba(212,168,67,.2)':'transparent',border:`1px solid ${kidsMode?'rgba(212,168,67,.5)':'#1a2e1f'}`,color:kidsMode?'#d4a843':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
+                  🌟 {rtl?'للأطفال':'Kids'}
+                </button>
+              </div>
+              <div style={{ color: '#7a9082', fontSize: 10, letterSpacing: 1, fontFamily: 'system-ui', marginBottom: 8, textAlign: 'center' }}>
+                {buffering && !audioErr && <span style={{ color: '#d4a843' }}>● {rtl?'جارٍ التحميل...':'buffering...'}</span>}
+                {audioErr && <span style={{ color: '#e07050' }}>⚠ {rtl ? 'الصوت غير متاح' : 'audio unavailable'}</span>}
                 {!buffering && !audioErr && audioPos && audioPos.n === surah.n && progress > 3 && (
-                  <span style={{ color: '#2d9b6f', marginLeft: 8 }}>⏱ {rtl ? 'استؤنف' : 'resumed'}</span>
+                  <span style={{ color: '#2d9b6f' }}>⏱ {rtl ? 'استؤنف من '+fmtTime(audioPos.time) : 'resumed from '+fmtTime(audioPos.time)}</span>
                 )}
               </div>
 
@@ -1035,6 +1231,17 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
 
         {/* ── Ayah text ── */}
         <div className="scrl" style={{ flex: 1, overflowY: 'auto', padding: '20px 16px' }}>
+          {/* Kids mode banner */}
+          {kidsMode && !loadText && (
+            <div style={{ background: 'linear-gradient(135deg,rgba(212,168,67,.15),rgba(45,155,111,.15))', border: '1px solid rgba(212,168,67,.3)', borderRadius: 14, padding: '14px 16px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>🌟</div>
+              <div style={{ color: '#d4a843', fontSize: 16, fontFamily: 'Georgia,serif', marginBottom: 4 }}>{rtl ? 'وضع القرآن التعليمي' : 'Kids Learning Mode'}</div>
+              <div style={{ color: '#7a9082', fontSize: 12, fontFamily: 'system-ui', lineHeight: 1.6 }}>
+                {rtl ? 'استمع لكل آية ✓ واضغط "حفظت الآية" لتجميع النجوم ⭐ واضغط على رقم الآية لحفظ مكانك 📍' : 'Listen to each ayah ✓ tap "Got it!" to earn stars ⭐ tap the ayah number to bookmark your place 📍'}
+              </div>
+            </div>
+          )}
+
           {/* Bismillah — all surahs except At-Tawbah (9) */}
           {!loadText && ayahs.length > 0 && surah.n !== 9 && (
             <div style={{ textAlign: 'center', color: '#d4a843', fontSize: 26, lineHeight: 2.2, marginBottom: 16, fontFamily: "'Amiri', Georgia, serif", direction: 'rtl' }}>
@@ -1056,15 +1263,13 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
           )}
 
           {!loadText && ayahs.map(a => (
-            <div key={a.n} style={{ marginBottom: 18, paddingBottom: 18, borderBottom: '1px solid rgba(26,46,31,.5)' }}>
-              <div style={{ fontSize: 23, lineHeight: 2.3, color: '#f0e8d8', direction: 'rtl', textAlign: 'right', fontFamily: "'Amiri', 'Scheherazade New', Georgia, serif" }}>
-                {a.text}
-                {' '}
-                <span style={{ display: 'inline-block', width: 32, height: 32, borderRadius: '50%', border: '1px solid rgba(212,168,67,.3)', textAlign: 'center', lineHeight: '30px', color: '#d4a843', fontSize: 12, fontFamily: 'system-ui', verticalAlign: 'middle', flexShrink: 0 }}>
-                  {a.n}
-                </span>
-              </div>
-            </div>
+            <AyahRow
+              key={a.n} a={a} surahN={surah.n}
+              learnMode={learnMode} kidsMode={kidsMode} lang={lang}
+              isLastRead={lastAyah[surah.n] === a.n}
+              onRead={() => setLastAyah(p => ({...p, [surah.n]: a.n}))}
+              ref={el => { if (el) ayahRefs.current[a.n] = el }}
+            />
           ))}
 
           {/* Mark as read at bottom */}
@@ -1585,8 +1790,32 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
     setMsgs(updated); setLoading(true)
     try {
       const sys=rtl
-        ?`أنت الأستاذ زكّاها، مرشد روحاني إسلامي دافئ وحكيم متخصص في تزكية النفس وتطوير الأخلاق الإسلامية.\n\nالمستخدم: ${user.name} | التركيز: ${fa.arabic} | الاستمرارية: ${user.streak} يوماً | المستوى: ${lv.name}\n\nأسلوبك: دافئ كأب، حكيم كعالم، عملي كمدرب. استشهد بالقرآن والسنة بشكل طبيعي. اعترف بمشاعرهم قبل النصيحة. ابدأ بحل عملي واحد يطبقه اليوم.`
-        :`You are Ustadh Zakkaha, a warm and wise Islamic spiritual mentor specializing in tazkiyah al-nafs.\n\nUser: ${user.name} | Focus: ${fa.label} (${fa.arabic}) | Streak: ${user.streak} days | Level: ${lv.name}\n\nTone: warm as a father, wise as a scholar, practical as a coach. Reference Quran/Hadith naturally. Acknowledge emotion before advice. End with ONE practical action for today. 2-4 paragraphs.`
+        ?`أنت الأستاذ زكّاها، مستشار إسلامي يلتزم المنهج العلمي الصارم.
+
+المستخدم: ${user.name} | التركيز: ${fa.arabic} | الاستمرارية: ${user.streak} يوماً | المستوى: ${lv.name}
+
+🔴 قواعد مطلقة لا استثناء:
+١. لا تذكر حديثاً أو دعاءً إلا من: القرآن الكريم، أو الكتب الستة (البخاري، مسلم، أبو داود، الترمذي، النسائي، ابن ماجه)، أو ما صحّحه الألباني أو ابن باز أو ابن عثيمين.
+٢. كل نص شرعي يجب أن يُذكر مصدره مباشرة بعده بين قوسين، مثال: (رواه البخاري برقم ٦٣١١) أو (سورة البقرة: ٢٨٦).
+٣. الأدعية: لا تذكر إلا الأدعية الواردة في القرآن أو السنة الصحيحة مع مصدرها. إن لم تجد دعاءً موثقاً، قل صراحةً: "لا أعرف دعاءً مأثوراً خاصاً بهذا الموضوع، لكن يمكنك الدعاء بقلبك ولسانك فالدعاء المأثور غير مشترط في كل الأحوال."
+٤. إن لم تتذكر المصدر الدقيق، لا تذكر النص مطلقاً. قل: "لا أستطيع التحقق من هذا المصدر الآن."
+٥. للفتاوى: استند لـ islamqa.info أو اللجنة الدائمة للبحوث العلمية، واذكر ذلك صراحةً.
+٦. لا تخترع أدعية أو صيغ ذكر ولو بنية حسنة.
+
+أسلوبك: دافئ، عملي، اعترف بالمشاعر أولاً، خطوة عملية واحدة في الختام.`
+        :`You are Ustadh Zakkaha, an Islamic advisor who strictly follows scholarly methodology.
+
+User: ${user.name} | Focus: ${fa.label} (${fa.arabic}) | Streak: ${user.streak} days | Level: ${lv.name}
+
+🔴 ABSOLUTE RULES — NO EXCEPTIONS:
+1. Never quote a hadith, dua, or Quranic verse unless you cite its EXACT authenticated source: the Six Books (Bukhari, Muslim, Abu Dawud, Tirmidhi, Nasai, Ibn Majah), authenticated by Al-Albani, Ibn Baz, Ibn Uthaymin, or the Quran with surah:verse.
+2. Every Islamic text MUST be followed by its full reference in parentheses, e.g.: (Bukhari #6311) or (Quran 2:286).
+3. Duas: Only cite duas from the Quran or authenticated Sunnah with source. If no appropriate authenticated dua exists, say explicitly: "I don't know an authenticated dua for this specifically — but you may supplicate freely in your own words, as personal dua in any form is always valid and accepted."
+4. If you cannot verify the exact source of a text, do NOT quote it. Say: "I cannot verify this source right now."
+5. For rulings and fatwas: reference islamqa.info or the Permanent Committee (Al-Lajna Al-Da'ima) and state this.
+6. NEVER compose or fabricate duas or dhikr formulas, even with good intention. This is impermissible.
+
+Tone: warm as a father, wise as a scholar, practical as a coach. Acknowledge feelings first. End with ONE practical action only.`
 
       const res=await fetch('/api/mentor',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:updated.slice(-20),system:sys})})
       const data=await res.json()
@@ -1630,13 +1859,22 @@ function MentorTab({user,lang,msgs,setMsgs,loading,setLoading,setMentorCount,set
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 70px)'}} className="zk-mentor-h" dir={rtl?'rtl':'ltr'}>
-      <div style={{background:'#0c1a0f',borderBottom:'1px solid #1a2e1f',padding:'52px 20px 14px',flexShrink:0,position:'relative',overflow:'hidden'}}>
+      <div style={{background:'#0c1a0f',borderBottom:'1px solid #1a2e1f',padding:'52px 20px 10px',flexShrink:0,position:'relative',overflow:'hidden'}}>
         <GeomBg/>
-        <div style={{position:'relative',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{position:'relative',display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
           <div style={{width:44,height:44,borderRadius:'50%',background:'rgba(212,168,67,.1)',border:'1px solid rgba(212,168,67,.3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🔮</div>
           <div>
             <div style={{color:'#f0e8d8',fontSize:15}}>{t(lang,'m_name')}</div>
             <div style={{color:'#d4a843',fontSize:11,fontFamily:'system-ui'}}>{t(lang,'m_sub')}</div>
+          </div>
+        </div>
+        {/* ── Permanent disclaimer ── */}
+        <div style={{position:'relative',background:'rgba(224,112,80,.08)',border:'1px solid rgba(224,112,80,.25)',borderRadius:8,padding:'8px 12px',display:'flex',alignItems:'flex-start',gap:8}}>
+          <span style={{color:'#e07050',fontSize:14,flexShrink:0,marginTop:1}}>⚠️</span>
+          <div style={{color:'#e07050',fontSize:11,fontFamily:'system-ui',lineHeight:1.6}}>
+            {rtl
+              ?'تحقق دائماً من المصادر — هذا مساعد ذكي وليس عالم دين. كل نص شرعي يجب التثبت منه من مصادره الأصلية.'
+              :'Always verify sources — this is an AI assistant, not a religious scholar. Every Islamic text must be checked against original sources.'}
           </div>
         </div>
       </div>
@@ -2592,13 +2830,13 @@ export default function Page() {
   const activeChIds=challenges.map(c=>c.id)
 
   const navItems=[
-    {id:'home',     icon:<IcHome s={22}/>,  iconLg:<IcHome s={26}/>,  label:t(lang,'home')},
-    {id:'quran',    icon:<IcBook s={22}/>,  iconLg:<IcBook s={26}/>,  label:t(lang,'quran')},
-    {id:'adhkar',   icon:<IcStar s={22}/>,  iconLg:<IcStar s={26}/>,  label:t(lang,'adhkar')},
-    {id:'challenges',icon:<IcZap s={22}/>, iconLg:<IcZap s={26}/>,   label:t(lang,'challenges')},
-    {id:'mentor',   icon:<IcMsg s={22}/>,   iconLg:<IcMsg s={26}/>,   label:t(lang,'mentor')},
-    {id:'videos',   icon:<span style={{fontSize:18}}>🎬</span>, iconLg:<span style={{fontSize:24}}>🎬</span>, label:rtl?'تفقّه':'Learn'},
-    {id:'profile',  icon:<IcUser s={22}/>,  iconLg:<IcUser s={26}/>,  label:t(lang,'profile')},
+    {id:'home',     icon:<IcHome s={26}/>,  iconLg:<IcHome s={28}/>,  label:t(lang,'home')},
+    {id:'quran',    icon:<IcBook s={26}/>,  iconLg:<IcBook s={28}/>,  label:t(lang,'quran')},
+    {id:'adhkar',   icon:<IcStar s={26}/>,  iconLg:<IcStar s={28}/>,  label:t(lang,'adhkar')},
+    {id:'challenges',icon:<IcZap s={26}/>, iconLg:<IcZap s={28}/>,   label:t(lang,'challenges')},
+    {id:'mentor',   icon:<IcMsg s={26}/>,   iconLg:<IcMsg s={28}/>,   label:t(lang,'mentor')},
+    {id:'videos',   icon:<span style={{fontSize:22}}>🎬</span>, iconLg:<span style={{fontSize:26}}>🎬</span>, label:rtl?'تفقّه':'Learn'},
+    {id:'profile',  icon:<IcUser s={26}/>,  iconLg:<IcUser s={28}/>,  label:t(lang,'profile')},
   ]
 
   function navClick(id){setTab(id);if(id==='journal'&&journalView!=='list')setJournalView('list')}
@@ -2728,10 +2966,10 @@ export default function Page() {
       {/* ── BOTTOM NAV (mobile) ── */}
       <nav className="zk-bottom-nav">
         {navItems.map(n=>(
-          <button key={n.id} onClick={()=>navClick(n.id)} style={{background:'none',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'6px 8px',color:tab===n.id?'#d4a843':'#3a5045',transition:'color .2s',position:'relative',minWidth:0}}>
+          <button key={n.id} onClick={()=>navClick(n.id)} style={{background:'none',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,padding:'6px 4px',color:tab===n.id?'#d4a843':'#7a9082',transition:'color .2s',position:'relative',minWidth:0,flex:1}}>
             {n.icon}
-            <span style={{fontSize:8,letterSpacing:.3,fontFamily:'system-ui',lineHeight:1}}>{n.label}</span>
-            {tab===n.id&&<div style={{position:'absolute',bottom:-1,left:'50%',transform:'translateX(-50%)',width:20,height:2,background:'#d4a843',borderRadius:1}}/>}
+            <span style={{fontSize:10,letterSpacing:.2,fontFamily:'system-ui',lineHeight:1,fontWeight:tab===n.id?700:400,marginTop:1}}>{n.label}</span>
+            {tab===n.id&&<div style={{position:'absolute',top:0,left:'50%',transform:'translateX(-50%)',width:28,height:3,background:'#d4a843',borderRadius:2}}/>}
           </button>
         ))}
       </nav>
