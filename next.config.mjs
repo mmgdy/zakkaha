@@ -28,7 +28,7 @@ const nextConfig = {
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cube.paysky.io:6006 https://pgw.paysky.io https://dorar.net https://everyayah.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
-              "connect-src 'self' https://api.openai.com https://api.groq.com https://cube.paysky.io:6006 https://pgw.paysky.io https://dorar.net https://api.alquran.cloud https://server8.mp3quran.net https://server11.mp3quran.net https://cdn.islamic.network https://download.quranicaudio.com",
+              "connect-src 'self' https://api.openai.com https://api.groq.com https://cube.paysky.io:6006 https://pgw.paysky.io https://dorar.net https://api.alquran.cloud https://server6.mp3quran.net https://server7.mp3quran.net https://server8.mp3quran.net https://server11.mp3quran.net https://cdn.islamic.network https://download.quranicaudio.com https://everyayah.com",
               "frame-src https://cube.paysky.io:6006 https://pgw.paysky.io",
               "img-src 'self' data: https:",
               "media-src 'self' blob:",

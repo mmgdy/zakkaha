@@ -794,13 +794,20 @@ const AyahRow = React.forwardRef(function AyahRow(
   }
   useEffect(() => { if (kidsMode) fetchTranslation() }, [kidsMode])
 
-  // ── Kids audio (repeat this ayah) — uses ayah-level everyayah CDN ─────
+  // ── Kids audio (repeat this ayah) ──────────────────────────────────────
+  // Use surah audio from our API (302 redirect to CDN, browser fetches directly)
+  // For individual ayah audio, everyayah.com works directly from browsers
   function playAyahAudio() {
     const padS = String(surahN).padStart(3, '0')
     const padA = String(a.n).padStart(3, '0')
-    const url = `https://everyayah.com/data/Yasser_Ad-Dossary_128kbps/${padS}${padA}.mp3`
+    // everyayah.com works in browsers (hotlink protection is IP-based, not browser-based)
+    const candidates = [
+      `https://everyayah.com/data/Yasser_Ad-Dossary_128kbps/${padS}${padA}.mp3`,
+      `https://everyayah.com/data/MinshawiFull_mujawwad_Suras/${padS}${padA}.mp3`,
+    ]
     if (kidsAudio) { kidsAudio.pause(); kidsAudio.currentTime = 0 }
-    const audio = new Audio(url)
+    const audio = new Audio(candidates[0])
+    audio.onerror = () => { const a2 = new Audio(candidates[1]); a2.play().catch(()=>{}) }
     setKidsAudio(audio)
     audio.play().catch(() => {})
   }
@@ -928,8 +935,22 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const ayahRefs   = useRef({})  // ref map: ayahNum → DOM node for scroll-to
 
   const RECITERS = {
-    dosari:   { label: 'ياسر الدوسري',    labelEn: 'Yasser Al-Dosari',  apiPath: 'dosari'   },
-    minshawi: { label: 'محمد صديق المنشاوي', labelEn: 'Al-Minshawi',    apiPath: 'minshawi' },
+    // ── حفص (Hafs) ──────────────────────────────────────────────────────
+    dosari:    { label:'ياسر الدوسري',              labelEn:'Yasser Al-Dosari',   group:'hafs'   },
+    lahuni:    { label:'مصطفى اللاهوني',            labelEn:'Mustafa Al-Lahuni',  group:'hafs'   },
+    hatem:     { label:'حاتم فريد الواعر',           labelEn:'Hatem Farid Al-Waer',group:'hafs'   },
+    hasan:     { label:'حسن صالح',                  labelEn:'Hassan Saleh',       group:'hafs'   },
+    ramadan:   { label:'رمضان خليف',                labelEn:'Ramadan Khalif',     group:'hafs'   },
+    sibaei:    { label:'محمد علاء الدين سباعي',     labelEn:'M. Ala Al-Din Sibai',group:'hafs'   },
+    atiya:     { label:'عبد الخالق عطية',            labelEn:'Abd Al-Khaliq Atiya',group:'hafs'   },
+    barbari:   { label:'محمد فوزي البربري',          labelEn:'M. Fawzi Al-Barbari',group:'hafs'   },
+    salem:     { label:'محمد سالم عامر',            labelEn:'Muhammad Salem Amer',group:'hafs'   },
+    siofi:     { label:'رضا السيوفي',               labelEn:'Rida Al-Siofi',      group:'hafs'   },
+    // ── مجوّد / تجويد (Tajweed) ─────────────────────────────────────────
+    minshawi:  { label:'المنشاوي (مرتّل)',           labelEn:'Al-Minshawi (Murattal)', group:'tajweed' },
+    minshawi_m:{ label:'المنشاوي (مجوّد)',           labelEn:'Al-Minshawi (Mujawwad)', group:'tajweed' },
+    banna:     { label:'محمود البنا',               labelEn:'Mahmoud Al-Banna',   group:'tajweed' },
+    imran:     { label:'محمد عمران',                labelEn:'Muhammad Imran',     group:'tajweed' },
   }
 
   // Persist reciter choice
@@ -1167,25 +1188,38 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
 
             {/* ── Audio player ── */}
             <div style={{ background: 'rgba(212,168,67,.06)', border: '1px solid rgba(212,168,67,.15)', borderRadius: 10, padding: '11px 14px', direction: 'ltr' }}>
-              {/* Reciter switcher + learn mode */}
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-                <div style={{display:'flex',gap:5}}>
-                  {Object.entries(RECITERS).map(([key,r])=>(
-                    <button key={key} onClick={()=>{setReciter(key);const a=audioRef.current;if(a){a.pause();a.src='';setPlaying(false);setProgress(0);setDuration(0);setAudioErr(false)}}}
-                      style={{background:reciter===key?'rgba(212,168,67,.15)':'transparent',border:`1px solid ${reciter===key?'rgba(212,168,67,.4)':'#1a2e1f'}`,color:reciter===key?'#d4a843':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
-                      🎙️ {rtl?r.label:r.labelEn}
-                    </button>
-                  ))}
-                </div>
-                <button onClick={()=>setLearnMode(p=>!p)}
-                  style={{background:learnMode?'rgba(45,155,111,.15)':'transparent',border:`1px solid ${learnMode?'rgba(45,155,111,.4)':'#1a2e1f'}`,color:learnMode?'#2d9b6f':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
-                  📚 {rtl?'التعلم':'Learn'}
-                </button>
+              {/* ── Reciter groups + mode buttons ── */}
+              {/* Kids mode prominent button — always visible */}
+              <div style={{display:'flex',gap:8,marginBottom:8}}>
                 <button onClick={()=>setKidsMode(p=>!p)}
-                  style={{background:kidsMode?'rgba(212,168,67,.2)':'transparent',border:`1px solid ${kidsMode?'rgba(212,168,67,.5)':'#1a2e1f'}`,color:kidsMode?'#d4a843':'#3a5045',borderRadius:6,padding:'4px 8px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s'}}>
-                  🌟 {rtl?'للأطفال':'Kids'}
+                  style={{flex:1,background:kidsMode?'linear-gradient(135deg,rgba(212,168,67,.25),rgba(45,155,111,.2))':'rgba(212,168,67,.08)',border:`2px solid ${kidsMode?'#d4a843':'rgba(212,168,67,.3)'}`,color:kidsMode?'#d4a843':'#7a9082',borderRadius:10,padding:'10px 8px',fontSize:13,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s',fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  🌟 {rtl?(kidsMode?'⬅ وضع القرآن التعليمي — اضغط للخروج':'القرآن التعليمي للأطفال'):(kidsMode?'⬅ Kids Mode ON — tap to exit':'Kids Learning Mode')}
+                </button>
+                <button onClick={()=>setLearnMode(p=>!p)}
+                  style={{background:learnMode?'rgba(45,155,111,.15)':'transparent',border:`1px solid ${learnMode?'rgba(45,155,111,.4)':'#1a2e1f'}`,color:learnMode?'#2d9b6f':'#3a5045',borderRadius:8,padding:'8px 10px',fontSize:11,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s',flexShrink:0}}>
+                  📚 {rtl?'التفسير':'Tafsir'}
                 </button>
               </div>
+              {/* Reciter selector — scrollable rows by group */}
+              {!kidsMode&&(()=>{
+                const hafs    = Object.entries(RECITERS).filter(([,r])=>r.group==='hafs')
+                const tajweed = Object.entries(RECITERS).filter(([,r])=>r.group==='tajweed')
+                const changeReciter = key=>{setReciter(key);const a=audioRef.current;if(a){a.pause();a.src='';setPlaying(false);setProgress(0);setDuration(0);setAudioErr(false)}}
+                const BtnRow = ({label, items}) => (
+                  <div style={{marginBottom:6}}>
+                    <div style={{color:'#3a5045',fontSize:8,letterSpacing:2,fontFamily:'system-ui',marginBottom:3}}>{label}</div>
+                    <div style={{display:'flex',gap:5,overflowX:'auto',WebkitOverflowScrolling:'touch',paddingBottom:2}}>
+                      {items.map(([key,r])=>(
+                        <button key={key} onClick={()=>changeReciter(key)}
+                          style={{flexShrink:0,background:reciter===key?'rgba(212,168,67,.15)':'transparent',border:`1px solid ${reciter===key?'rgba(212,168,67,.4)':'#1a2e1f'}`,color:reciter===key?'#d4a843':'#7a9082',borderRadius:6,padding:'5px 9px',fontSize:10,fontFamily:'system-ui',cursor:'pointer',transition:'all .2s',whiteSpace:'nowrap'}}>
+                          🎙️ {rtl?r.label:r.labelEn}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+                return (<><BtnRow label={rtl?'حفص':'HAFS'} items={hafs}/><BtnRow label={rtl?'تجويد':'TAJWEED'} items={tajweed}/></>)
+              })()}
               <div style={{ color: '#7a9082', fontSize: 10, letterSpacing: 1, fontFamily: 'system-ui', marginBottom: 8, textAlign: 'center' }}>
                 {buffering && !audioErr && <span style={{ color: '#d4a843' }}>● {rtl?'جارٍ التحميل...':'buffering...'}</span>}
                 {audioErr && <span style={{ color: '#e07050' }}>⚠ {rtl ? 'الصوت غير متاح' : 'audio unavailable'}</span>}
