@@ -936,21 +936,22 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
 
   const RECITERS = {
     // ── حفص (Hafs) ──────────────────────────────────────────────────────
-    dosari:    { label:'ياسر الدوسري',              labelEn:'Yasser Al-Dosari',   group:'hafs'   },
-    lahuni:    { label:'مصطفى اللاهوني',            labelEn:'Mustafa Al-Lahuni',  group:'hafs'   },
-    hatem:     { label:'حاتم فريد الواعر',           labelEn:'Hatem Farid Al-Waer',group:'hafs'   },
-    hasan:     { label:'حسن صالح',                  labelEn:'Hassan Saleh',       group:'hafs'   },
-    ramadan:   { label:'رمضان خليف',                labelEn:'Ramadan Khalif',     group:'hafs'   },
-    sibaei:    { label:'محمد علاء الدين سباعي',     labelEn:'M. Ala Al-Din Sibai',group:'hafs'   },
-    atiya:     { label:'عبد الخالق عطية',            labelEn:'Abd Al-Khaliq Atiya',group:'hafs'   },
-    barbari:   { label:'محمد فوزي البربري',          labelEn:'M. Fawzi Al-Barbari',group:'hafs'   },
-    salem:     { label:'محمد سالم عامر',            labelEn:'Muhammad Salem Amer',group:'hafs'   },
-    siofi:     { label:'رضا السيوفي',               labelEn:'Rida Al-Siofi',      group:'hafs'   },
-    // ── مجوّد / تجويد (Tajweed) ─────────────────────────────────────────
-    minshawi:  { label:'المنشاوي (مرتّل)',           labelEn:'Al-Minshawi (Murattal)', group:'tajweed' },
+    dosari:    { label:'ياسر الدوسري',              labelEn:'Yasser Al-Dosari',       group:'hafs'   },
+    mishary:   { label:'مشاري راشد العفاسي',        labelEn:'Mishary Rashid Al-Afasy',group:'hafs'   },
+    lahuni:    { label:'مصطفى اللاهوني',            labelEn:'Mustafa Al-Lahuni',      group:'hafs'   },
+    hatem:     { label:'حاتم فريد الواعر',           labelEn:'Hatem Farid Al-Waer',   group:'hafs'   },
+    hasan:     { label:'حسن صالح',                  labelEn:'Hassan Saleh',           group:'hafs'   },
+    ramadan:   { label:'رمضان خليف',                labelEn:'Ramadan Khalif',         group:'hafs'   },
+    sibaei:    { label:'محمد علاء الدين سباعي',     labelEn:'M. Ala Al-Din Sibai',   group:'hafs'   },
+    atiya:     { label:'عبد الخالق عطية',            labelEn:'Abd Al-Khaliq Atiya',   group:'hafs'   },
+    barbari:   { label:'محمد فوزي البربري',          labelEn:'M. Fawzi Al-Barbari',   group:'hafs'   },
+    salem:     { label:'محمد سالم عامر',            labelEn:'Muhammad Salem Amer',   group:'hafs'   },
+    siofi:     { label:'رضا السيوفي',               labelEn:'Rida Al-Siofi',         group:'hafs'   },
+    // ── تجويد (Tajweed) ─────────────────────────────────────────────────
+    minshawi:  { label:'المنشاوي (مرتّل)',           labelEn:'Al-Minshawi (Murattal)',  group:'tajweed' },
     minshawi_m:{ label:'المنشاوي (مجوّد)',           labelEn:'Al-Minshawi (Mujawwad)', group:'tajweed' },
-    banna:     { label:'محمود البنا',               labelEn:'Mahmoud Al-Banna',   group:'tajweed' },
-    imran:     { label:'محمد عمران',                labelEn:'Muhammad Imran',     group:'tajweed' },
+    banna:     { label:'محمود البنا',               labelEn:'Mahmoud Al-Banna',       group:'tajweed' },
+    imran:     { label:'محمد عمران',                labelEn:'Muhammad Imran',         group:'tajweed' },
   }
 
   // Persist reciter choice
@@ -1082,7 +1083,10 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
       if (!a.src || audioErr) {
         a.dataset.triedBackup = ''
         setAudioErr(false)
-        a.src = `/api/audio/${surah.n}?reciter=${reciter}`
+        const primarySrc  = `/api/audio/${surah.n}?reciter=${reciter}`
+        const fallbackSrc = `/api/audio/${surah.n}?reciter=${reciter}&fallback=1`
+        a.onerror = () => { if (a.src !== fallbackSrc) { a.src = fallbackSrc; a.load(); a.play().catch(()=>{}) } }
+        a.src = primarySrc
         a.load()
       }
       setBuffering(true)
@@ -1674,30 +1678,24 @@ function AdhkarTab({lang,user,setUser,showNotif}) {
       <h2 style={{color:'#f0e8d8',fontSize:24,marginBottom:6}}>{t(lang,'a_title')}</h2>
       <p style={{color:'#7a9082',fontSize:13,fontFamily:'system-ui',lineHeight:1.65,marginBottom:22}}>{t(lang,'a_sub')}</p>
 
-      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
         {ADHKAR_CATEGORIES.map(cat=>{
           const done=isCatDone(cat.id)
           const list=ADHKAR[cat.id]||[]
           return (
             <button key={cat.id} onClick={()=>setCatId(cat.id)}
-              style={{background:done?'rgba(45,155,111,.06)':'#0c1a0f',border:`1px solid ${done?'rgba(45,155,111,.3)':'rgba(212,168,67,.15)'}`,borderRadius:12,padding:18,cursor:'pointer',textAlign:rtl?'right':'left',transition:'all .2s'}}>
-              <div style={{display:'flex',alignItems:'center',gap:14}}>
-                <div style={{width:46,height:46,borderRadius:10,background:`${cat.color}18`,border:`1px solid ${cat.color}30`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>
-                  {cat.emoji}
-                </div>
-                <div style={{flex:1}}>
-                  <div style={{color:done?'#2d9b6f':'#f0e8d8',fontSize:15,marginBottom:3}}>
-                    {rtl?cat.labelAr:cat.label}
-                    {done&&<span style={{marginLeft:8,fontSize:12}}> ✓</span>}
-                  </div>
-                  <div style={{color:'#3a5045',fontSize:12,fontFamily:'system-ui'}}>{list.length} {rtl?'ذكر':'adhkar'}</div>
-                </div>
-                {done?
-                  <div style={{color:'#2d9b6f',fontSize:12,fontFamily:'system-ui'}}>{t(lang,'a_session_done')}</div>
-                :
-                  rtl?<IcChev s={16} left/>:<IcChev s={16}/>
-                }
+              style={{background:done?'rgba(45,155,111,.08)':'#0c1a0f',border:`2px solid ${done?'rgba(45,155,111,.4)':cat.color+'30'}`,borderRadius:14,padding:'16px 12px',cursor:'pointer',textAlign:'center',transition:'all .2s',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+              <div style={{width:50,height:50,borderRadius:12,background:cat.color+'18',border:`1px solid ${cat.color}40`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>
+                {cat.emoji}
               </div>
+              <div style={{flex:1,width:'100%'}}>
+                <div style={{color:done?'#2d9b6f':'#f0e8d8',fontSize:12,fontWeight:600,marginBottom:3,lineHeight:1.3}}>
+                  {rtl?cat.labelAr:cat.label}
+                  {done&&<span style={{marginRight:4}}> ✓</span>}
+                </div>
+                <div style={{color:'#3a5045',fontSize:10,fontFamily:'system-ui'}}>{list.length} {rtl?'ذكر':'adhkar'}</div>
+              </div>
+              {done&&<div style={{color:'#2d9b6f',fontSize:10,fontFamily:'system-ui'}}>✓ {t(lang,'a_session_done')}</div>}
             </button>
           )
         })}
