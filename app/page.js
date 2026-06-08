@@ -934,24 +934,32 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
   const [lastAyah,   setLastAyah]    = useState(() => S.get('zk:lastayah') || {})
   const ayahRefs   = useRef({})  // ref map: ayahNum → DOM node for scroll-to
 
+  // Direct CDN URLs — browser fetches mp3quran.net directly (no server proxy needed)
   const RECITERS = {
     // ── حفص (Hafs) ──────────────────────────────────────────────────────
-    dosari:    { label:'ياسر الدوسري',              labelEn:'Yasser Al-Dosari',       group:'hafs'   },
-    mishary:   { label:'مشاري راشد العفاسي',        labelEn:'Mishary Rashid Al-Afasy',group:'hafs'   },
-    lahuni:    { label:'مصطفى اللاهوني',            labelEn:'Mustafa Al-Lahuni',      group:'hafs'   },
-    hatem:     { label:'حاتم فريد الواعر',           labelEn:'Hatem Farid Al-Waer',   group:'hafs'   },
-    hasan:     { label:'حسن صالح',                  labelEn:'Hassan Saleh',           group:'hafs'   },
-    ramadan:   { label:'رمضان خليف',                labelEn:'Ramadan Khalif',         group:'hafs'   },
-    sibaei:    { label:'محمد علاء الدين سباعي',     labelEn:'M. Ala Al-Din Sibai',   group:'hafs'   },
-    atiya:     { label:'عبد الخالق عطية',            labelEn:'Abd Al-Khaliq Atiya',   group:'hafs'   },
-    barbari:   { label:'محمد فوزي البربري',          labelEn:'M. Fawzi Al-Barbari',   group:'hafs'   },
-    salem:     { label:'محمد سالم عامر',            labelEn:'Muhammad Salem Amer',   group:'hafs'   },
-    siofi:     { label:'رضا السيوفي',               labelEn:'Rida Al-Siofi',         group:'hafs'   },
+    dosari:    { label:'ياسر الدوسري',              labelEn:'Yasser Al-Dosari',        group:'hafs',    cdn:(n)=>`https://server11.mp3quran.net/yasser/${n}.mp3`,    cdn2:(n)=>`https://cdn.islamic.network/quran/audio-surah/128/ar.YasserAl-Dosari/${n}.mp3` },
+    mishary:   { label:'مشاري راشد العفاسي',        labelEn:'Mishary Rashid Al-Afasy', group:'hafs',    cdn:(n)=>`https://server8.mp3quran.net/afs/${n}.mp3`,        cdn2:(n)=>`https://cdn.islamic.network/quran/audio-surah/128/ar.Alafasy/${n}.mp3`         },
+    lahuni:    { label:'مصطفى اللاهوني',            labelEn:'Mustafa Al-Lahuni',       group:'hafs',    cdn:(n)=>`https://server7.mp3quran.net/lahoon/${n}.mp3`,     cdn2:(n)=>`https://server11.mp3quran.net/lahoon/${n}.mp3`                                   },
+    hatem:     { label:'حاتم فريد الواعر',           labelEn:'Hatem Farid Al-Waer',    group:'hafs',    cdn:(n)=>`https://server7.mp3quran.net/hatm/${n}.mp3`,      cdn2:(n)=>`https://server11.mp3quran.net/hatm/${n}.mp3`                                     },
+    hasan:     { label:'حسن صالح',                  labelEn:'Hassan Saleh',            group:'hafs',    cdn:(n)=>`https://server7.mp3quran.net/hsmn/${n}.mp3`,      cdn2:(n)=>`https://server11.mp3quran.net/hsmn/${n}.mp3`                                     },
+    ramadan:   { label:'رمضان خليف',                labelEn:'Ramadan Khalif',          group:'hafs',    cdn:(n)=>`https://server11.mp3quran.net/Khalaf/${n}.mp3`,   cdn2:(n)=>`https://server8.mp3quran.net/Khalaf/${n}.mp3`                                    },
+    sibaei:    { label:'محمد علاء الدين سباعي',     labelEn:'M. Ala Al-Din Sibai',    group:'hafs',    cdn:(n)=>`https://server8.mp3quran.net/sbaey/${n}.mp3`,     cdn2:(n)=>`https://server11.mp3quran.net/sbaey/${n}.mp3`                                    },
+    atiya:     { label:'عبد الخالق عطية',            labelEn:'Abd Al-Khaliq Atiya',    group:'hafs',    cdn:(n)=>`https://server8.mp3quran.net/khalaq_atia/${n}.mp3`,cdn2:(n)=>`https://server11.mp3quran.net/khalaq_atia/${n}.mp3`                               },
+    barbari:   { label:'محمد فوزي البربري',          labelEn:'M. Fawzi Al-Barbari',    group:'hafs',    cdn:(n)=>`https://server11.mp3quran.net/frg/${n}.mp3`,      cdn2:(n)=>`https://server8.mp3quran.net/frg/${n}.mp3`                                       },
+    salem:     { label:'محمد سالم عامر',            labelEn:'Muhammad Salem Amer',    group:'hafs',    cdn:(n)=>`https://server11.mp3quran.net/flstn/${n}.mp3`,    cdn2:(n)=>`https://server8.mp3quran.net/flstn/${n}.mp3`                                     },
+    siofi:     { label:'رضا السيوفي',               labelEn:'Rida Al-Siofi',          group:'hafs',    cdn:(n)=>`https://server11.mp3quran.net/rsd_s/${n}.mp3`,    cdn2:(n)=>`https://server8.mp3quran.net/rsd_s/${n}.mp3`                                     },
     // ── تجويد (Tajweed) ─────────────────────────────────────────────────
-    minshawi:  { label:'المنشاوي (مرتّل)',           labelEn:'Al-Minshawi (Murattal)',  group:'tajweed' },
-    minshawi_m:{ label:'المنشاوي (مجوّد)',           labelEn:'Al-Minshawi (Mujawwad)', group:'tajweed' },
-    banna:     { label:'محمود البنا',               labelEn:'Mahmoud Al-Banna',       group:'tajweed' },
-    imran:     { label:'محمد عمران',                labelEn:'Muhammad Imran',         group:'tajweed' },
+    minshawi:  { label:'المنشاوي (مرتّل)',           labelEn:'Al-Minshawi (Murattal)', group:'tajweed', cdn:(n)=>`https://server8.mp3quran.net/minsh/${n}.mp3`,     cdn2:(n)=>`https://cdn.islamic.network/quran/audio-surah/128/ar.Minshawi/${n}.mp3`        },
+    minshawi_m:{ label:'المنشاوي (مجوّد)',           labelEn:'Al-Minshawi (Mujawwad)',group:'tajweed', cdn:(n)=>`https://server8.mp3quran.net/Minshawy_Mujawwad/${n}.mp3`,cdn2:(n)=>`https://server11.mp3quran.net/Minshawy_Mujawwad/${n}.mp3`              },
+    banna:     { label:'محمود البنا',               labelEn:'Mahmoud Al-Banna',       group:'tajweed', cdn:(n)=>`https://server6.mp3quran.net/bna/${n}.mp3`,       cdn2:(n)=>`https://server11.mp3quran.net/bna/${n}.mp3`                                      },
+    imran:     { label:'محمد عمران',                labelEn:'Muhammad Imran',         group:'tajweed', cdn:(n)=>`https://server11.mp3quran.net/moh_emran/${n}.mp3`,cdn2:(n)=>`https://server8.mp3quran.net/moh_emran/${n}.mp3`                                 },
+  }
+
+  // Build direct CDN audio URL (browser fetches directly — no server proxy)
+  function getAudioUrl(surahNum, reciterKey, useBackup = false) {
+    const pad3 = String(surahNum).padStart(3, '0')
+    const r = RECITERS[reciterKey] || RECITERS.dosari
+    return useBackup ? r.cdn2(pad3) : r.cdn(pad3)
   }
 
   // Persist reciter choice
@@ -1035,22 +1043,13 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
         }
       },
       error:          () => {
-        // Try backup URL on first error
-        if (surah && !a.dataset.triedBackup) {
-          a.dataset.triedBackup = '1'
-          // Backup: retry same proxy (server will try next CDN automatically)
-          // Proxy already handles retries server-side
-          setAudioErr(true); setBuffering(false); setPlaying(false)
-          a.load()
-          if (playing) a.play().catch(() => setAudioErr(true))
-        } else {
-          setAudioErr(true); setBuffering(false); setPlaying(false)
-        }
+        // Server proxy already tries multiple CDNs — if it fails, nothing more to do
+        setAudioErr(true); setBuffering(false); setPlaying(false)
       },
     }
     Object.entries(handlers).forEach(([e, fn]) => a.addEventListener(e, fn))
     return () => Object.entries(handlers).forEach(([e, fn]) => a.removeEventListener(e, fn))
-  }, [surah?.n, playing])
+  }, [surah?.n, playing, reciter])
 
   // ── Stop audio on unmount ─────────────────────────────────────────────────
   useEffect(() => () => {
@@ -1081,12 +1080,10 @@ function QuranTab({ lang, khatma, setKhatma, setUser, showNotif }) {
       a.pause()
     } else {
       if (!a.src || audioErr) {
-        a.dataset.triedBackup = ''
         setAudioErr(false)
-        const primarySrc  = `/api/audio/${surah.n}?reciter=${reciter}`
-        const fallbackSrc = `/api/audio/${surah.n}?reciter=${reciter}&fallback=1`
-        a.onerror = () => { if (a.src !== fallbackSrc) { a.src = fallbackSrc; a.load(); a.play().catch(()=>{}) } }
-        a.src = primarySrc
+        a.dataset.triedBackup = ''
+        // Use server proxy — it forwards with browser-like headers, handles CDN fallbacks
+        a.src = `/api/audio/${surah.n}?reciter=${reciter}`
         a.load()
       }
       setBuffering(true)
