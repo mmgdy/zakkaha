@@ -86,32 +86,33 @@ const PWA = {
     }, { once: false })
     reg.active.postMessage({ type: 'PREFETCH_QURAN' })
   },
-  // Schedule a local notification — timers live in page thread (SW timers get killed by browser)
+  // Show a notification immediately via SW (works on iOS PWA + Android)
+  showNotif: async (title, body, tag, url) => {
+    if (typeof window === 'undefined') return
+    try {
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, rej) => setTimeout(() => rej(), 3000))
+      ])
+      if (reg?.showNotification) {
+        await reg.showNotification(title, {
+          body, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png',
+          tag: tag || 'zakkaha', vibrate: [200,100,200],
+          data: { url: url || '/' }, requireInteraction: false,
+        })
+        return true
+      }
+    } catch {}
+    // Fallback: direct Notification API (desktop browsers)
+    try { new Notification(title, { body, icon:'/icons/icon-192.png', tag:tag||'zakkaha' }) } catch {}
+    return false
+  },
+  // Schedule a local notification — timers live in page thread
   scheduleNotif: async (id, delayMs, title, body, tag, url) => {
     if (typeof window === 'undefined' || Notification.permission !== 'granted') return
     if (!PWA._timers) PWA._timers = {}
     if (PWA._timers[id]) clearTimeout(PWA._timers[id])
-    PWA._timers[id] = setTimeout(async () => {
-      // Try SW first (works even when tab is in background)
-      try {
-        const swReady = await Promise.race([
-          navigator.serviceWorker.ready,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('SW timeout')), 2000))
-        ])
-        if (swReady?.active) {
-          swReady.active.postMessage({ type:'SHOW_NOTIFICATION_NOW', notification:{title,body,tag,url} })
-          return
-        }
-      } catch {}
-      // Fallback: direct Notification API (foreground only)
-      try {
-        new Notification(title, {
-          body, icon: '/icons/icon-192.png',
-          tag: tag || id, vibrate: [200,100,200],
-          data: { url: url || '/' }
-        })
-      } catch {}
-    }, delayMs)
+    PWA._timers[id] = setTimeout(() => PWA.showNotif(title, body, tag, url), delayMs)
   },
 }
 
@@ -192,9 +193,9 @@ function scheduleAllNotifications(lang, user) {
   if (typeof window === 'undefined') return
   if (Notification.permission !== 'granted') return
 
-  const now   = new Date()
-  const ar    = lang === 'ar'
-  const name  = user?.name || (ar ? 'أخي' : 'friend')
+  const now    = new Date()
+  const ar     = lang === 'ar'
+  const name   = user?.name || (ar ? 'أخي' : 'friend')
   const streak = user?.streak || 0
 
   function msUntilHour(h) {
@@ -206,6 +207,16 @@ function scheduleAllNotifications(lang, user) {
   }
 
   const day = now.getDay()
+
+  // ── Show INSTANT notification on enable / page load ──────────────────────
+  // (so user knows notifications work immediately)
+  const INSTANT_MSG = ar
+    ? `أهلاً ${name} 🌿 الإشعارات مفعّلة — ستصلك تذكيرات الصلاة والأذكار في وقتها`
+    : `Welcome ${name} 🌿 Notifications enabled — you'll receive prayer & adhkar reminders`
+  PWA.showNotif(
+    ar ? '✓ زكّاها — الإشعارات مفعّلة' : '✓ Zakkaha — Notifications enabled',
+    INSTANT_MSG, 'enable', '/?tab=adhkar'
+  )
 
   // ── Schedule prayers with built-in messages (instant, no API call) ────
   const prayers = [
@@ -767,47 +778,38 @@ const AyahRow = React.forwardRef(function AyahRow(
   const [kidsAudio, setKidsAudio] = useState(null)
   const rtl = lang === 'ar'
 
-  // ── Tafsir (learn mode) ────────────────────────────────────────────────
+  // ── Tafsir (learn mode) — via server proxy ──────────────────────────────
   async function fetchTafsir() {
     if (tafsir !== null || tafsirLoad) return
     setTafsirLoad(true)
     try {
-      const key = rtl ? 'ar.jalalayn' : 'en.sahih'
-      const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahN}:${a.n}/${key}`)
+      const ed  = rtl ? 'ar.jalalayn' : 'en.sahih'
+      const res = await fetch(`/api/tafsir?s=${surahN}&a=${a.n}&ed=${ed}`)
       const d   = await res.json()
-      setTafsir(d?.data?.text || '')
-    } catch { setTafsir('') }
+      setTafsir(d.text || null)
+    } catch { setTafsir(null) }
     setTafsirLoad(false)
   }
   useEffect(() => { if (learnMode) fetchTafsir() }, [learnMode])
 
-  // ── Simple translation (kids mode) ────────────────────────────────────
+  // ── Translation (kids mode) — via server proxy ────────────────────────
   async function fetchTranslation() {
     if (translation !== null || transLoad) return
     setTransLoad(true)
     try {
-      const res = await fetch(`https://api.alquran.cloud/v1/ayah/${surahN}:${a.n}/en.asad`)
+      const res = await fetch(`/api/tafsir?s=${surahN}&a=${a.n}&ed=en.sahih`)
       const d   = await res.json()
-      setTrans(d?.data?.text || '')
-    } catch { setTrans('') }
+      setTrans(d.text || null)
+    } catch { setTrans(null) }
     setTransLoad(false)
   }
   useEffect(() => { if (kidsMode) fetchTranslation() }, [kidsMode])
 
-  // ── Kids audio (repeat this ayah) ──────────────────────────────────────
-  // Use surah audio from our API (302 redirect to CDN, browser fetches directly)
-  // For individual ayah audio, everyayah.com works directly from browsers
+  // ── Kids audio — via server proxy (everyayah.com blocked by browser CSP) ─
   function playAyahAudio() {
-    const padS = String(surahN).padStart(3, '0')
-    const padA = String(a.n).padStart(3, '0')
-    // everyayah.com works in browsers (hotlink protection is IP-based, not browser-based)
-    const candidates = [
-      `https://everyayah.com/data/Yasser_Ad-Dossary_128kbps/${padS}${padA}.mp3`,
-      `https://everyayah.com/data/MinshawiFull_mujawwad_Suras/${padS}${padA}.mp3`,
-    ]
     if (kidsAudio) { kidsAudio.pause(); kidsAudio.currentTime = 0 }
-    const audio = new Audio(candidates[0])
-    audio.onerror = () => { const a2 = new Audio(candidates[1]); a2.play().catch(()=>{}) }
+    const audio = new Audio(`/api/ayah-audio?s=${surahN}&a=${a.n}`)
+    audio.onerror = () => console.warn('[KidsAudio] failed')
     setKidsAudio(audio)
     audio.play().catch(() => {})
   }
@@ -904,6 +906,11 @@ const AyahRow = React.forwardRef(function AyahRow(
           {!tafsirLoad && tafsir && (
             <div style={{ color: '#c8dfc8', fontSize: 14, lineHeight: 1.9, fontFamily: rtl ? "'Amiri', Georgia, serif" : 'system-ui', direction: rtl ? 'rtl' : 'ltr', textAlign: rtl ? 'right' : 'left' }}>
               {tafsir}
+            </div>
+          )}
+          {!tafsirLoad && tafsir === null && (
+            <div style={{ color: '#3a5045', fontSize: 12, fontFamily: 'system-ui' }}>
+              {rtl ? 'التفسير غير متاح الآن' : 'Translation unavailable'}
             </div>
           )}
         </div>
@@ -2472,13 +2479,12 @@ function ProfileTab({user,lang,journals,challenges,badges,mentorCount,khatma,ope
               <div style={{color:'#f0e8d8',fontSize:13,marginBottom:1}}>{rtl?'اختبار الإشعارات':'Test Notifications'}</div>
               <div style={{color:'#7a9082',fontSize:10,fontFamily:'system-ui'}}>{rtl?'اضغط لاستقبال إشعار فوري':'Tap to receive an immediate notification'}</div>
             </div>
-            <button onClick={()=>{
-              if(Notification.permission==='granted'){
-                new Notification(rtl?'💚 الصلاة على النبي ﷺ':'💚 Test Notification',{
-                  body:rtl?'اللهم صلِّ على محمد وعلى آل محمد — الإشعارات تعمل ✓':'Notifications are working correctly ✓',
-                  icon:'/icons/icon-192.png',tag:'test'
-                })
-              }
+            <button onClick={async ()=>{
+              await PWA.showNotif(
+                rtl?'💚 الصلاة على النبي ﷺ':'💚 Test Notification',
+                rtl?'اللهم صلِّ على محمد وعلى آل محمد — الإشعارات تعمل ✓':'Notifications are working correctly ✓',
+                'test', '/?tab=adhkar'
+              )
             }} style={{background:'#2d9b6f',color:'#fff',border:'none',borderRadius:8,padding:'9px 14px',fontSize:12,fontFamily:'system-ui',cursor:'pointer',fontWeight:600,flexShrink:0}}>
               {rtl?'اختبر الآن':'Test Now'}
             </button>

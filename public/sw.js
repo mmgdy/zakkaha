@@ -1,9 +1,9 @@
 // ── Zakkaha Service Worker ────────────────────────────────────────────────────
 // Handles: offline Quran cache, push notifications, background sync
 
-const CACHE_VERSION  = 'zakkaha-v4'
+const CACHE_VERSION  = 'zakkaha-v5'
 const QURAN_CACHE    = 'zakkaha-quran-v1'
-const STATIC_CACHE   = 'zakkaha-static-v4'
+const STATIC_CACHE   = 'zakkaha-static-v5'
 
 // Static assets to cache on install
 const STATIC_ASSETS = ['/', '/manifest.json']
@@ -90,11 +90,15 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close()
   const url = e.notification.data?.url || '/'
+  const targetUrl = new URL(url, self.location.origin).href
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-      const existing = clients.find(c => c.url.includes(self.location.origin))
-      if (existing) { existing.focus(); existing.navigate(url) }
-      else self.clients.openWindow(url)
+      // Find an existing window for this origin
+      const existing = clients.find(c => c.url.startsWith(self.location.origin))
+      if (existing) {
+        return existing.focus().then(w => w.navigate(targetUrl))
+      }
+      return self.clients.openWindow(targetUrl)
     })
   )
 })
